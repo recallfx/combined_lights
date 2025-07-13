@@ -34,6 +34,104 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# Utility functions to eliminate code duplication
+def create_light_entity_selector() -> selector.EntitySelector:
+    """Create light entity selector for reuse."""
+    return selector.EntitySelector(
+        selector.EntitySelectorConfig(domain="light", multiple=True)
+    )
+
+
+def create_basic_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    """Create basic configuration schema with optional defaults."""
+    defaults = defaults or {}
+    
+    return vol.Schema(
+        {
+            vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, "")): selector.TextSelector(),
+            vol.Optional(
+                CONF_BACKGROUND_LIGHTS,
+                default=defaults.get(CONF_BACKGROUND_LIGHTS, []),
+            ): create_light_entity_selector(),
+            vol.Optional(
+                CONF_FEATURE_LIGHTS,
+                default=defaults.get(CONF_FEATURE_LIGHTS, []),
+            ): create_light_entity_selector(),
+            vol.Optional(
+                CONF_CEILING_LIGHTS,
+                default=defaults.get(CONF_CEILING_LIGHTS, []),
+            ): create_light_entity_selector(),
+        }
+    )
+
+
+def create_curve_selector() -> selector.SelectSelector:
+    """Create brightness curve selector for reuse."""
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                {"value": CURVE_LINEAR, "label": "Linear (even response)"},
+                {"value": CURVE_QUADRATIC, "label": "Quadratic (more precision at low brightness)"},
+                {"value": CURVE_CUBIC, "label": "Cubic (maximum precision at low brightness)"},
+            ]
+        )
+    )
+
+
+def create_advanced_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    """Create advanced configuration schema with optional defaults."""
+    defaults = defaults or {}
+    
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_BREAKPOINTS,
+                default=defaults.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
+                description="Slider breakpoints (e.g., [30, 60, 90])",
+            ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_BRIGHTNESS_CURVE,
+                default=defaults.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
+                description="Brightness response curve",
+            ): create_curve_selector(),
+            vol.Optional(
+                CONF_BACKGROUND_BRIGHTNESS_RANGES,
+                default=defaults.get(CONF_BACKGROUND_BRIGHTNESS_RANGES, DEFAULT_BACKGROUND_BRIGHTNESS_RANGES),
+                description="Background brightness ranges for each stage",
+            ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_FEATURE_BRIGHTNESS_RANGES,
+                default=defaults.get(CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES),
+                description="Feature brightness ranges for each stage",
+            ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_CEILING_BRIGHTNESS_RANGES,
+                default=defaults.get(CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES),
+                description="Ceiling brightness ranges for each stage",
+            ): selector.ObjectSelector(),
+        }
+    )
+
+
+def merge_config_with_defaults(config_data: dict[str, Any], user_input: dict[str, Any]) -> dict[str, Any]:
+    """Merge configuration data with defaults for missing values."""
+    return {
+        **config_data,
+        CONF_BREAKPOINTS: user_input.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
+        CONF_BRIGHTNESS_CURVE: user_input.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
+        CONF_BACKGROUND_BRIGHTNESS_RANGES: user_input.get(
+            CONF_BACKGROUND_BRIGHTNESS_RANGES,
+            DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
+        ),
+        CONF_FEATURE_BRIGHTNESS_RANGES: user_input.get(
+            CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES
+        ),
+        CONF_CEILING_BRIGHTNESS_RANGES: user_input.get(
+            CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES
+        ),
+    }
+
+
 class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Combined Lights."""
 
@@ -56,21 +154,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Proceed to advanced configuration
             return await self.async_step_advanced()
 
-        # Define the schema for the user input form.
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_NAME): selector.TextSelector(),
-                vol.Optional(CONF_BACKGROUND_LIGHTS): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="light", multiple=True),
-                ),
-                vol.Optional(CONF_FEATURE_LIGHTS): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="light", multiple=True),
-                ),
-                vol.Optional(CONF_CEILING_LIGHTS): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="light", multiple=True),
-                ),
-            }
-        )
+        # Use utility function to create schema
+        data_schema = create_basic_schema()
 
         # Show the form to the user.
         return self.async_show_form(
@@ -89,66 +174,16 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Merge advanced configuration with defaults for missing values
-            config_data = {
-                **self._config_data,
-                CONF_BREAKPOINTS: user_input.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
-                CONF_BRIGHTNESS_CURVE: user_input.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
-                CONF_BACKGROUND_BRIGHTNESS_RANGES: user_input.get(
-                    CONF_BACKGROUND_BRIGHTNESS_RANGES,
-                    DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
-                ),
-                CONF_FEATURE_BRIGHTNESS_RANGES: user_input.get(
-                    CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES
-                ),
-                CONF_CEILING_BRIGHTNESS_RANGES: user_input.get(
-                    CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES
-                ),
-            }
+            # Merge advanced configuration with defaults using utility function
+            config_data = merge_config_with_defaults(self._config_data, user_input)
 
             # Create the config entry
             return self.async_create_entry(
                 title=self._config_data[CONF_NAME], data=config_data
             )
 
-        # Advanced configuration schema
-        data_schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_BREAKPOINTS,
-                    default=DEFAULT_BREAKPOINTS,
-                    description="Slider breakpoints (e.g., [30, 60, 90])",
-                ): selector.ObjectSelector(),
-                vol.Optional(
-                    CONF_BRIGHTNESS_CURVE,
-                    default=DEFAULT_BRIGHTNESS_CURVE,
-                    description="Brightness response curve",
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"value": CURVE_LINEAR, "label": "Linear (even response)"},
-                            {"value": CURVE_QUADRATIC, "label": "Quadratic (more precision at low brightness)"},
-                            {"value": CURVE_CUBIC, "label": "Cubic (maximum precision at low brightness)"},
-                        ]
-                    )
-                ),
-                vol.Optional(
-                    CONF_BACKGROUND_BRIGHTNESS_RANGES,
-                    default=DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
-                    description="Background brightness ranges for each stage",
-                ): selector.ObjectSelector(),
-                vol.Optional(
-                    CONF_FEATURE_BRIGHTNESS_RANGES,
-                    default=DEFAULT_FEATURE_BRIGHTNESS_RANGES,
-                    description="Feature brightness ranges for each stage",
-                ): selector.ObjectSelector(),
-                vol.Optional(
-                    CONF_CEILING_BRIGHTNESS_RANGES,
-                    default=DEFAULT_CEILING_BRIGHTNESS_RANGES,
-                    description="Ceiling brightness ranges for each stage",
-                ): selector.ObjectSelector(),
-            }
-        )
+        # Use utility function to create advanced schema
+        data_schema = create_advanced_schema()
 
         return self.async_show_form(
             step_id="advanced",
@@ -183,32 +218,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Proceed to advanced configuration
             return await self.async_step_reconfigure_advanced()
 
-        # Pre-fill form with current configuration
-        data_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_NAME, default=config_entry.data.get(CONF_NAME, "")
-                ): selector.TextSelector(),
-                vol.Optional(
-                    CONF_BACKGROUND_LIGHTS,
-                    default=config_entry.data.get(CONF_BACKGROUND_LIGHTS, []),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="light", multiple=True),
-                ),
-                vol.Optional(
-                    CONF_FEATURE_LIGHTS,
-                    default=config_entry.data.get(CONF_FEATURE_LIGHTS, []),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="light", multiple=True),
-                ),
-                vol.Optional(
-                    CONF_CEILING_LIGHTS,
-                    default=config_entry.data.get(CONF_CEILING_LIGHTS, []),
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="light", multiple=True),
-                ),
-            }
-        )
+        # Use utility function to create schema with current values as defaults
+        data_schema = create_basic_schema(config_entry.data)
 
         return self.async_show_form(
             step_id="reconfigure",
@@ -232,22 +243,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
-            # Merge advanced configuration with current config data
-            updated_config = {
-                **self._config_data,
-                CONF_BREAKPOINTS: user_input.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
-                CONF_BRIGHTNESS_CURVE: user_input.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
-                CONF_BACKGROUND_BRIGHTNESS_RANGES: user_input.get(
-                    CONF_BACKGROUND_BRIGHTNESS_RANGES,
-                    DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
-                ),
-                CONF_FEATURE_BRIGHTNESS_RANGES: user_input.get(
-                    CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES
-                ),
-                CONF_CEILING_BRIGHTNESS_RANGES: user_input.get(
-                    CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES
-                ),
-            }
+            # Merge advanced configuration with current config data using utility function
+            updated_config = merge_config_with_defaults(self._config_data, user_input)
 
             # Update the config entry
             return self.async_update_reload_and_abort(
@@ -256,54 +253,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
                 reason="reconfigure_successful",
             )
 
-        # Advanced configuration schema with current values as defaults
-        current_data = config_entry.data
-        data_schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_BREAKPOINTS,
-                    default=current_data.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
-                    description="Slider breakpoints (e.g., [30, 60, 90])",
-                ): selector.ObjectSelector(),
-                vol.Optional(
-                    CONF_BRIGHTNESS_CURVE,
-                    default=current_data.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
-                    description="Brightness response curve",
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            {"value": CURVE_LINEAR, "label": "Linear (even response)"},
-                            {"value": CURVE_QUADRATIC, "label": "Quadratic (more precision at low brightness)"},
-                            {"value": CURVE_CUBIC, "label": "Cubic (maximum precision at low brightness)"},
-                        ]
-                    )
-                ),
-                vol.Optional(
-                    CONF_BACKGROUND_BRIGHTNESS_RANGES,
-                    default=current_data.get(
-                        CONF_BACKGROUND_BRIGHTNESS_RANGES,
-                        DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
-                    ),
-                    description="Background brightness ranges for each stage",
-                ): selector.ObjectSelector(),
-                vol.Optional(
-                    CONF_FEATURE_BRIGHTNESS_RANGES,
-                    default=current_data.get(
-                        CONF_FEATURE_BRIGHTNESS_RANGES,
-                        DEFAULT_FEATURE_BRIGHTNESS_RANGES,
-                    ),
-                    description="Feature brightness ranges for each stage",
-                ): selector.ObjectSelector(),
-                vol.Optional(
-                    CONF_CEILING_BRIGHTNESS_RANGES,
-                    default=current_data.get(
-                        CONF_CEILING_BRIGHTNESS_RANGES,
-                        DEFAULT_CEILING_BRIGHTNESS_RANGES,
-                    ),
-                    description="Ceiling brightness ranges for each stage",
-                ): selector.ObjectSelector(),
-            }
-        )
+        # Use utility function to create advanced schema with current values as defaults
+        data_schema = create_advanced_schema(config_entry.data)
 
         return self.async_show_form(
             step_id="reconfigure_advanced",

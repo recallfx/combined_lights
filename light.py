@@ -33,6 +33,30 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# Utility functions to eliminate code duplication
+def get_config_value(entry: ConfigEntry, key: str, default: Any) -> Any:
+    """Get configuration value with default fallback."""
+    return entry.data.get(key, default)
+
+
+def get_light_zones(entry: ConfigEntry) -> dict[str, list[str]]:
+    """Get all light zones from configuration."""
+    return {
+        "background": get_config_value(entry, CONF_BACKGROUND_LIGHTS, []),
+        "feature": get_config_value(entry, CONF_FEATURE_LIGHTS, []),
+        "ceiling": get_config_value(entry, CONF_CEILING_LIGHTS, []),
+    }
+
+
+def get_brightness_ranges(entry: ConfigEntry) -> dict[str, list[list[int]]]:
+    """Get all brightness ranges from configuration."""
+    return {
+        "background": get_config_value(entry, CONF_BACKGROUND_BRIGHTNESS_RANGES, DEFAULT_BACKGROUND_BRIGHTNESS_RANGES),
+        "feature": get_config_value(entry, CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES),
+        "ceiling": get_config_value(entry, CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES),
+    }
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -49,7 +73,7 @@ class CombinedLight(LightEntity):
     def __init__(self, entry: ConfigEntry) -> None:
         """Initialize the Combined Light."""
         self._entry = entry
-        self._attr_name = entry.data.get("name", "Combined Lights")
+        self._attr_name = get_config_value(entry, "name", "Combined Lights")
         self._attr_unique_id = f"{entry.entry_id}_combined_light"
         self._attr_is_on = False
         self._attr_brightness = 255
@@ -90,28 +114,27 @@ class CombinedLight(LightEntity):
     def _sync_target_brightness_from_lights(self) -> None:
         """Sync target brightness from actual light states (used during initialization)."""
         # Get configuration
-        breakpoints = self._entry.data.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
-        background_lights = self._entry.data.get(CONF_BACKGROUND_LIGHTS, [])
-        feature_lights = self._entry.data.get(CONF_FEATURE_LIGHTS, [])
-        ceiling_lights = self._entry.data.get(CONF_CEILING_LIGHTS, [])
+        breakpoints = get_config_value(self._entry, CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
+        light_zones = get_light_zones(self._entry)
 
         # Get average brightness from each zone
-        bg_brightness = self._get_average_brightness(background_lights)
-        feat_brightness = self._get_average_brightness(feature_lights)
-        ceil_brightness = self._get_average_brightness(ceiling_lights)
+        zone_brightness = {
+            zone: self._get_average_brightness(lights)
+            for zone, lights in light_zones.items()
+        }
 
         # Simple heuristic: use the highest brightness from active zones
         # and map it to an appropriate target brightness
         max_brightness = 0
-        if ceil_brightness:
+        if zone_brightness["ceiling"]:
             # Ceiling lights suggest we're in stage 3 or 4
-            max_brightness = max(max_brightness, breakpoints[2] * 255 // 100 + ceil_brightness // 2)
-        elif feat_brightness:
+            max_brightness = max(max_brightness, breakpoints[2] * 255 // 100 + zone_brightness["ceiling"] // 2)
+        elif zone_brightness["feature"]:
             # Feature lights suggest we're in stage 2 or 3
-            max_brightness = max(max_brightness, breakpoints[1] * 255 // 100 + feat_brightness // 2)
-        elif bg_brightness:
+            max_brightness = max(max_brightness, breakpoints[1] * 255 // 100 + zone_brightness["feature"] // 2)
+        elif zone_brightness["background"]:
             # Background lights suggest we're in stage 1 or 2
-            max_brightness = max(max_brightness, bg_brightness)
+            max_brightness = max(max_brightness, zone_brightness["background"])
 
         if max_brightness > 0:
             self._target_brightness = min(255, max_brightness)
@@ -125,10 +148,8 @@ class CombinedLight(LightEntity):
 
     def _get_all_controlled_lights(self) -> list[str]:
         """Get all controlled light entity IDs."""
-        background_lights = self._entry.data.get(CONF_BACKGROUND_LIGHTS, [])
-        feature_lights = self._entry.data.get(CONF_FEATURE_LIGHTS, [])
-        ceiling_lights = self._entry.data.get(CONF_CEILING_LIGHTS, [])
-        return background_lights + feature_lights + ceiling_lights
+        light_zones = get_light_zones(self._entry)
+        return sum(light_zones.values(), [])  # Flatten all zone lists
 
     @property
     def available(self) -> bool:
@@ -176,16 +197,10 @@ class CombinedLight(LightEntity):
 
         self._attr_is_on = True
 
-        # Get configuration
-        breakpoints = self._entry.data.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
-        background_ranges = self._entry.data.get(CONF_BACKGROUND_BRIGHTNESS_RANGES, DEFAULT_BACKGROUND_BRIGHTNESS_RANGES)
-        feature_ranges = self._entry.data.get(CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES)
-        ceiling_ranges = self._entry.data.get(CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES)
-
-        # Get configured light entities from config entry
-        background_lights = self._entry.data.get(CONF_BACKGROUND_LIGHTS, [])
-        feature_lights = self._entry.data.get(CONF_FEATURE_LIGHTS, [])
-        ceiling_lights = self._entry.data.get(CONF_CEILING_LIGHTS, [])
+        # Get configuration using utility functions
+        breakpoints = get_config_value(self._entry, CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
+        light_zones = get_light_zones(self._entry)
+        brightness_ranges = get_brightness_ranges(self._entry)
 
         # Convert brightness to percentage (0-100)
         brightness_pct = (self._target_brightness / 255.0) * 100
@@ -193,45 +208,38 @@ class CombinedLight(LightEntity):
         # Determine which stage we're in based on breakpoints
         stage = self._get_stage_from_brightness(brightness_pct, breakpoints)
 
-        # Calculate brightness for each zone based on stage and configured ranges
-        background_brightness = self._calculate_zone_brightness_from_config(
-            brightness_pct, stage, background_ranges, breakpoints
-        )
-        feature_brightness = self._calculate_zone_brightness_from_config(
-            brightness_pct, stage, feature_ranges, breakpoints
-        )
-        ceiling_brightness = self._calculate_zone_brightness_from_config(
-            brightness_pct, stage, ceiling_ranges, breakpoints
-        )
+        # Calculate and apply brightness for each zone
+        zone_brightness = {}
+        for zone_name in ["background", "feature", "ceiling"]:
+            zone_brightness[zone_name] = self._calculate_zone_brightness_from_config(
+                brightness_pct, stage, brightness_ranges[zone_name], breakpoints
+            )
 
-        # Control background lights
-        if background_lights and background_brightness > 0:
-            await self._control_lights(background_lights, background_brightness / 100.0)
-        elif background_lights:
-            await self._turn_off_lights(background_lights)
-
-        # Control feature lights
-        if feature_lights and feature_brightness > 0:
-            await self._control_lights(feature_lights, feature_brightness / 100.0)
-        elif feature_lights:
-            await self._turn_off_lights(feature_lights)
-
-        # Control ceiling lights
-        if ceiling_lights and ceiling_brightness > 0:
-            await self._control_lights(ceiling_lights, ceiling_brightness / 100.0)
-        elif ceiling_lights:
-            await self._turn_off_lights(ceiling_lights)
+        # Control all zones
+        await self._control_all_zones(light_zones, zone_brightness)
 
         _LOGGER.info(
             "Combined light turned on - overall: %s%% (stage %s) | background: %s%% | feature: %s%% | ceiling: %s%%",
             int(brightness_pct),
             stage + 1,
-            int(background_brightness) if background_brightness > 0 else 0,
-            int(feature_brightness) if feature_brightness > 0 else 0,
-            int(ceiling_brightness) if ceiling_brightness > 0 else 0,
+            int(zone_brightness["background"]) if zone_brightness["background"] > 0 else 0,
+            int(zone_brightness["feature"]) if zone_brightness["feature"] > 0 else 0,
+            int(zone_brightness["ceiling"]) if zone_brightness["ceiling"] > 0 else 0,
         )
 
         self.async_write_ha_state()
+
+    async def _control_all_zones(self, light_zones: dict[str, list[str]], zone_brightness: dict[str, float]) -> None:
+        """Control all light zones based on calculated brightness values."""
+        for zone_name, lights in light_zones.items():
+            if not lights:
+                continue
+                
+            brightness = zone_brightness[zone_name]
+            if brightness > 0:
+                await self._control_lights(lights, brightness / 100.0)
+            else:
+                await self._turn_off_lights(lights)
 
     def _get_stage_from_brightness(self, brightness_pct: float, breakpoints: list[int]) -> int:
         """Determine stage based on brightness percentage and breakpoints."""
@@ -255,29 +263,26 @@ class CombinedLight(LightEntity):
             return 0.0
 
         # Calculate position within the current stage
-        if stage == 0:
-            # Stage 1: 0% to breakpoints[0]%
-            stage_start, stage_end = 0, breakpoints[0]
-        elif stage == 1:
-            # Stage 2: breakpoints[0]% to breakpoints[1]%
-            stage_start, stage_end = breakpoints[0], breakpoints[1]
-        elif stage == 2:
-            # Stage 3: breakpoints[1]% to breakpoints[2]%
-            stage_start, stage_end = breakpoints[1], breakpoints[2]
-        else:
-            # Stage 4: breakpoints[2]% to 100%
-            stage_start, stage_end = breakpoints[2], 100
+        stage_boundaries = [
+            (0, breakpoints[0]),  # Stage 1
+            (breakpoints[0], breakpoints[1]),  # Stage 2
+            (breakpoints[1], breakpoints[2]),  # Stage 3
+            (breakpoints[2], 100),  # Stage 4
+        ]
+        
+        stage_start, stage_end = stage_boundaries[stage]
 
         # Calculate progress within the stage (0.0 to 1.0)
         if stage_end == stage_start:
             progress = 0.0
         else:
             progress = max(0.0, min(1.0, (overall_pct - stage_start) / (stage_end - stage_start)))
+        
         # Map progress to the configured brightness range for this zone
         min_brightness, max_brightness = stage_range
 
         # Apply brightness curve to the progress
-        curve_type = self._entry.data.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE)
+        curve_type = get_config_value(self._entry, CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE)
         curved_progress = self._apply_brightness_curve(progress, curve_type)
 
         return min_brightness + (curved_progress * (max_brightness - min_brightness))
@@ -335,11 +340,7 @@ class CombinedLight(LightEntity):
         self._attr_is_on = False
 
         # Turn off all configured lights
-        background_lights = self._entry.data.get(CONF_BACKGROUND_LIGHTS, [])
-        feature_lights = self._entry.data.get(CONF_FEATURE_LIGHTS, [])
-        ceiling_lights = self._entry.data.get(CONF_CEILING_LIGHTS, [])
-
-        all_lights = background_lights + feature_lights + ceiling_lights
+        all_lights = self._get_all_controlled_lights()
 
         if all_lights:
             await self._turn_off_lights(all_lights)
