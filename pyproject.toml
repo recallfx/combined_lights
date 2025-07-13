@@ -1,0 +1,50 @@
+[project]
+name = "custom_components.combined-lights"
+version = "1.0.0"
+description = "Combine and control multiple Home Assistant light entities as a single adaptive lighting group, with zone-based brightness and advanced configuration."
+maintainers = [
+  {name = "Marius Bieliauskas", email = "mbieliau@gmail.com"}
+]
+keywords = [
+  "homeassistant",
+  "lights",
+  "custom-component",
+  "custom-integration"
+]
+classifiers = [
+  "Intended Audience :: End Users/Desktop",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.11"
+]
+requires-python = ">=3.12.0"
+dependencies = [
+  "homeassistant>=2024.12.0",
+  "pytest>=8.3.4",
+  "pyyaml>=6.0.2",
+  "ruff>=0.9.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "homeassistant-stubs",
+  "pytest",
+  "ruff",
+  "types-PyYAML",
+  "voluptuous-stubs",
+  "pyyaml"
+]
+
+[project.urls]
+"Source Code" = "https://github.com/recallfx/ha-combined-lights"
+"Bug Reports" = "https://github.com/recallfx/ha-combined-lights/issues"
+
+[tool.setuptools]
+py-modules = ["custom_components.combined-lights"]
+
+[tool.ruff]
+src = ["src", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
