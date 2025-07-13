@@ -10,7 +10,7 @@ Combine and control multiple Home Assistant light entities as a single adaptive 
 - Supports reconfiguration without removing the integration
 
 ## Installation
-1. Copy the `combined_lights` folder to your Home Assistant `custom_components` directory.
+1. Copy the `ha_combined_lights` folder to your Home Assistant `custom_components` directory.
 2. Restart Home Assistant.
 3. Add the Combined Lights integration via Settings → Devices & Services.
 
