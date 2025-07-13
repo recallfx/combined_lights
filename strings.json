@@ -1,0 +1,75 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Combined Lights",
+        "description": "Configure light zones that will be controlled by breakpoints and brightness ranges.",
+        "data": {
+          "name": "Controller Name",
+          "background_lights": "Background Lights",
+          "feature_lights": "Feature Lights",
+          "ceiling_lights": "Ceiling Lights"
+        },
+        "data_description": {
+          "name": "A unique name for this controller (e.g., Living Room Combined Lights).",
+          "background_lights": "Select all lights that act as background or ambient lighting.",
+          "feature_lights": "Select all lights that highlight specific features or objects.",
+          "ceiling_lights": "Select all main ceiling lights."
+        }
+      },
+      "advanced": {
+        "title": "Advanced Configuration",
+        "description": "Configure breakpoints and brightness ranges for each zone.",
+        "data": {
+          "breakpoints": "Slider Breakpoints",
+          "background_brightness_ranges": "Background Brightness Ranges",
+          "feature_brightness_ranges": "Feature Brightness Ranges",
+          "ceiling_brightness_ranges": "Ceiling Brightness Ranges"
+        },
+        "data_description": {
+          "breakpoints": "Three values defining slider stages (e.g., [30, 60, 90] for 1-30%, 31-60%, 61-90%, 91-100%).",
+          "background_brightness_ranges": "Four [min, max] brightness ranges for background lights at each stage.",
+          "feature_brightness_ranges": "Four [min, max] brightness ranges for feature lights at each stage.",
+          "ceiling_brightness_ranges": "Four [min, max] brightness ranges for ceiling lights at each stage."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Combined Lights",
+        "description": "Update your light zones configuration.",
+        "data": {
+          "name": "Controller Name",
+          "background_lights": "Background Lights",
+          "feature_lights": "Feature Lights",
+          "ceiling_lights": "Ceiling Lights"
+        },
+        "data_description": {
+          "name": "A unique name for this controller (e.g., Living Room Combined Lights).",
+          "background_lights": "Select all lights that act as background or ambient lighting.",
+          "feature_lights": "Select all lights that highlight specific features or objects.",
+          "ceiling_lights": "Select all main ceiling lights."
+        }
+      },
+      "reconfigure_advanced": {
+        "title": "Advanced Reconfiguration",
+        "description": "Update breakpoints and brightness ranges for each zone.",
+        "data": {
+          "breakpoints": "Slider Breakpoints",
+          "background_brightness_ranges": "Background Brightness Ranges",
+          "feature_brightness_ranges": "Feature Brightness Ranges",
+          "ceiling_brightness_ranges": "Ceiling Brightness Ranges"
+        },
+        "data_description": {
+          "breakpoints": "Three values defining slider stages (e.g., [30, 60, 90] for 1-30%, 31-60%, 61-90%, 91-100%).",
+          "background_brightness_ranges": "Four [min, max] brightness ranges for background lights at each stage.",
+          "feature_brightness_ranges": "Four [min, max] brightness ranges for feature lights at each stage.",
+          "ceiling_brightness_ranges": "Four [min, max] brightness ranges for ceiling lights at each stage."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "entry_not_found": "Configuration entry not found",
+      "reconfigure_successful": "Configuration updated successfully"
+    }
+  }
+}
