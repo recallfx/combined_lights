@@ -15,12 +15,17 @@ from .const import (
     CONF_BACKGROUND_BRIGHTNESS_RANGES,
     CONF_BACKGROUND_LIGHTS,
     CONF_BREAKPOINTS,
+    CONF_BRIGHTNESS_CURVE,
     CONF_CEILING_BRIGHTNESS_RANGES,
     CONF_CEILING_LIGHTS,
     CONF_FEATURE_BRIGHTNESS_RANGES,
     CONF_FEATURE_LIGHTS,
+    CURVE_CUBIC,
+    CURVE_LINEAR,
+    CURVE_QUADRATIC,
     DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
     DEFAULT_BREAKPOINTS,
+    DEFAULT_BRIGHTNESS_CURVE,
     DEFAULT_CEILING_BRIGHTNESS_RANGES,
     DEFAULT_FEATURE_BRIGHTNESS_RANGES,
     DOMAIN,
@@ -88,6 +93,7 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             config_data = {
                 **self._config_data,
                 CONF_BREAKPOINTS: user_input.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
+                CONF_BRIGHTNESS_CURVE: user_input.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
                 CONF_BACKGROUND_BRIGHTNESS_RANGES: user_input.get(
                     CONF_BACKGROUND_BRIGHTNESS_RANGES,
                     DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
@@ -113,6 +119,19 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
                     default=DEFAULT_BREAKPOINTS,
                     description="Slider breakpoints (e.g., [30, 60, 90])",
                 ): selector.ObjectSelector(),
+                vol.Optional(
+                    CONF_BRIGHTNESS_CURVE,
+                    default=DEFAULT_BRIGHTNESS_CURVE,
+                    description="Brightness response curve",
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": CURVE_LINEAR, "label": "Linear (even response)"},
+                            {"value": CURVE_QUADRATIC, "label": "Quadratic (more precision at low brightness)"},
+                            {"value": CURVE_CUBIC, "label": "Cubic (maximum precision at low brightness)"},
+                        ]
+                    )
+                ),
                 vol.Optional(
                     CONF_BACKGROUND_BRIGHTNESS_RANGES,
                     default=DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
@@ -217,6 +236,7 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             updated_config = {
                 **self._config_data,
                 CONF_BREAKPOINTS: user_input.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
+                CONF_BRIGHTNESS_CURVE: user_input.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
                 CONF_BACKGROUND_BRIGHTNESS_RANGES: user_input.get(
                     CONF_BACKGROUND_BRIGHTNESS_RANGES,
                     DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
@@ -245,6 +265,19 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
                     default=current_data.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
                     description="Slider breakpoints (e.g., [30, 60, 90])",
                 ): selector.ObjectSelector(),
+                vol.Optional(
+                    CONF_BRIGHTNESS_CURVE,
+                    default=current_data.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
+                    description="Brightness response curve",
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            {"value": CURVE_LINEAR, "label": "Linear (even response)"},
+                            {"value": CURVE_QUADRATIC, "label": "Quadratic (more precision at low brightness)"},
+                            {"value": CURVE_CUBIC, "label": "Cubic (maximum precision at low brightness)"},
+                        ]
+                    )
+                ),
                 vol.Optional(
                     CONF_BACKGROUND_BRIGHTNESS_RANGES,
                     default=current_data.get(

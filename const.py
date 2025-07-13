@@ -21,6 +21,17 @@ CONF_FEATURE_BRIGHTNESS_RANGES = (
 )
 CONF_CEILING_BRIGHTNESS_RANGES = "ceiling_brightness_ranges"  # [[1,50], [51,100]]
 
+# Brightness curve configuration
+CONF_BRIGHTNESS_CURVE = "brightness_curve"  # "linear", "quadratic", or "cubic"
+
+# Brightness curve types
+CURVE_LINEAR = "linear"
+CURVE_QUADRATIC = "quadratic"  # More precision at low brightness
+CURVE_CUBIC = "cubic"  # Even more precision at low brightness
+
+# Default curve - linear provides most predictable behavior
+DEFAULT_BRIGHTNESS_CURVE = CURVE_LINEAR
+
 # Default configuration matching your original request
 DEFAULT_BREAKPOINTS = [30, 60, 90]  # 1-30%, 31-60%, 61-90%, 91-100%
 

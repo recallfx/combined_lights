@@ -22,12 +22,14 @@
         "description": "Configure breakpoints and brightness ranges for each zone.",
         "data": {
           "breakpoints": "Slider Breakpoints",
+          "brightness_curve": "Brightness Response Curve",
           "background_brightness_ranges": "Background Brightness Ranges",
           "feature_brightness_ranges": "Feature Brightness Ranges",
           "ceiling_brightness_ranges": "Ceiling Brightness Ranges"
         },
         "data_description": {
           "breakpoints": "Three values defining slider stages (e.g., [30, 60, 90] for 1-30%, 31-60%, 61-90%, 91-100%).",
+          "brightness_curve": "How brightness input translates to zone brightness. Quadratic gives more precision at low brightness levels.",
           "background_brightness_ranges": "Four [min, max] brightness ranges for background lights at each stage.",
           "feature_brightness_ranges": "Four [min, max] brightness ranges for feature lights at each stage.",
           "ceiling_brightness_ranges": "Four [min, max] brightness ranges for ceiling lights at each stage."
@@ -54,12 +56,14 @@
         "description": "Update breakpoints and brightness ranges for each zone.",
         "data": {
           "breakpoints": "Slider Breakpoints",
+          "brightness_curve": "Brightness Response Curve",
           "background_brightness_ranges": "Background Brightness Ranges",
           "feature_brightness_ranges": "Feature Brightness Ranges",
           "ceiling_brightness_ranges": "Ceiling Brightness Ranges"
         },
         "data_description": {
           "breakpoints": "Three values defining slider stages (e.g., [30, 60, 90] for 1-30%, 31-60%, 61-90%, 91-100%).",
+          "brightness_curve": "How brightness input translates to zone brightness. Quadratic gives more precision at low brightness levels.",
           "background_brightness_ranges": "Four [min, max] brightness ranges for background lights at each stage.",
           "feature_brightness_ranges": "Four [min, max] brightness ranges for feature lights at each stage.",
           "ceiling_brightness_ranges": "Four [min, max] brightness ranges for ceiling lights at each stage."
