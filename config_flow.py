@@ -45,10 +45,12 @@ def create_light_entity_selector() -> selector.EntitySelector:
 def create_basic_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     """Create basic configuration schema with optional defaults."""
     defaults = defaults or {}
-    
+
     return vol.Schema(
         {
-            vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, "")): selector.TextSelector(),
+            vol.Required(
+                CONF_NAME, default=defaults.get(CONF_NAME, "")
+            ): selector.TextSelector(),
             vol.Optional(
                 CONF_BACKGROUND_LIGHTS,
                 default=defaults.get(CONF_BACKGROUND_LIGHTS, []),
@@ -71,65 +73,123 @@ def create_curve_selector() -> selector.SelectSelector:
         selector.SelectSelectorConfig(
             options=[
                 {"value": CURVE_LINEAR, "label": "Linear (even response)"},
-                {"value": CURVE_QUADRATIC, "label": "Quadratic (more precision at low brightness)"},
-                {"value": CURVE_CUBIC, "label": "Cubic (maximum precision at low brightness)"},
+                {
+                    "value": CURVE_QUADRATIC,
+                    "label": "Quadratic (more precision at low brightness)",
+                },
+                {
+                    "value": CURVE_CUBIC,
+                    "label": "Cubic (maximum precision at low brightness)",
+                },
             ]
         )
     )
 
 
 def create_advanced_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
-    """Create advanced configuration schema with optional defaults."""
+    """Create advanced configuration schema using YAML editor."""
     defaults = defaults or {}
-    
+
+    # Create the default YAML configuration with simplified range format
+    default_config = {
+        CONF_BREAKPOINTS: defaults.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
+        CONF_BRIGHTNESS_CURVE: defaults.get(
+            CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE
+        ),
+        CONF_BACKGROUND_BRIGHTNESS_RANGES: format_ranges_for_yaml(
+            defaults.get(
+                CONF_BACKGROUND_BRIGHTNESS_RANGES, DEFAULT_BACKGROUND_BRIGHTNESS_RANGES
+            )
+        ),
+        CONF_FEATURE_BRIGHTNESS_RANGES: format_ranges_for_yaml(
+            defaults.get(
+                CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES
+            )
+        ),
+        CONF_CEILING_BRIGHTNESS_RANGES: format_ranges_for_yaml(
+            defaults.get(
+                CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES
+            )
+        ),
+    }
+
     return vol.Schema(
         {
-            vol.Optional(
-                CONF_BREAKPOINTS,
-                default=defaults.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
-                description="Slider breakpoints (e.g., [30, 60, 90])",
-            ): selector.ObjectSelector(),
-            vol.Optional(
-                CONF_BRIGHTNESS_CURVE,
-                default=defaults.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
-                description="Brightness response curve",
-            ): create_curve_selector(),
-            vol.Optional(
-                CONF_BACKGROUND_BRIGHTNESS_RANGES,
-                default=defaults.get(CONF_BACKGROUND_BRIGHTNESS_RANGES, DEFAULT_BACKGROUND_BRIGHTNESS_RANGES),
-                description="Background brightness ranges for each stage",
-            ): selector.ObjectSelector(),
-            vol.Optional(
-                CONF_FEATURE_BRIGHTNESS_RANGES,
-                default=defaults.get(CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES),
-                description="Feature brightness ranges for each stage",
-            ): selector.ObjectSelector(),
-            vol.Optional(
-                CONF_CEILING_BRIGHTNESS_RANGES,
-                default=defaults.get(CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES),
-                description="Ceiling brightness ranges for each stage",
+            vol.Required(
+                "advanced_config",
+                default=default_config,
+                description="Advanced configuration in YAML format",
             ): selector.ObjectSelector(),
         }
     )
 
 
-def merge_config_with_defaults(config_data: dict[str, Any], user_input: dict[str, Any]) -> dict[str, Any]:
+def merge_config_with_defaults(
+    config_data: dict[str, Any], user_input: dict[str, Any]
+) -> dict[str, Any]:
     """Merge configuration data with defaults for missing values."""
+    # Extract the advanced config from the YAML input
+    advanced_config = user_input.get("advanced_config", {})
+
+    # Parse brightness ranges from simplified format
+    background_ranges = parse_ranges_from_yaml(
+        advanced_config.get(
+            CONF_BACKGROUND_BRIGHTNESS_RANGES,
+            format_ranges_for_yaml(DEFAULT_BACKGROUND_BRIGHTNESS_RANGES),
+        )
+    )
+    feature_ranges = parse_ranges_from_yaml(
+        advanced_config.get(
+            CONF_FEATURE_BRIGHTNESS_RANGES,
+            format_ranges_for_yaml(DEFAULT_FEATURE_BRIGHTNESS_RANGES),
+        )
+    )
+    ceiling_ranges = parse_ranges_from_yaml(
+        advanced_config.get(
+            CONF_CEILING_BRIGHTNESS_RANGES,
+            format_ranges_for_yaml(DEFAULT_CEILING_BRIGHTNESS_RANGES),
+        )
+    )
+
     return {
         **config_data,
-        CONF_BREAKPOINTS: user_input.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
-        CONF_BRIGHTNESS_CURVE: user_input.get(CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE),
-        CONF_BACKGROUND_BRIGHTNESS_RANGES: user_input.get(
-            CONF_BACKGROUND_BRIGHTNESS_RANGES,
-            DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
+        CONF_BREAKPOINTS: advanced_config.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
+        CONF_BRIGHTNESS_CURVE: advanced_config.get(
+            CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE
         ),
-        CONF_FEATURE_BRIGHTNESS_RANGES: user_input.get(
-            CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES
-        ),
-        CONF_CEILING_BRIGHTNESS_RANGES: user_input.get(
-            CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES
-        ),
+        CONF_BACKGROUND_BRIGHTNESS_RANGES: background_ranges,
+        CONF_FEATURE_BRIGHTNESS_RANGES: feature_ranges,
+        CONF_CEILING_BRIGHTNESS_RANGES: ceiling_ranges,
     }
+
+
+def format_ranges_for_yaml(ranges: list[list[int]]) -> list[str]:
+    """Convert [[min, max], [min, max], ...] to ['min, max', 'min, max', ...] for better YAML display."""
+    return [f"{range_pair[0]}, {range_pair[1]}" for range_pair in ranges]
+
+
+def parse_ranges_from_yaml(
+    ranges_input: list[str] | list[list[int]],
+) -> list[list[int]]:
+    """Parse ranges from either 'min, max' strings or [[min, max]] format."""
+    if not ranges_input:
+        return []
+
+    result = []
+    for item in ranges_input:
+        if isinstance(item, str):
+            # Parse "min, max" format
+            parts = [int(x.strip()) for x in item.split(",")]
+            if len(parts) != 2:
+                raise ValueError(f"Invalid range format: {item}")
+            result.append(parts)
+        elif isinstance(item, list) and len(item) == 2:
+            # Already in [[min, max]] format
+            result.append([int(item[0]), int(item[1])])
+        else:
+            raise ValueError(f"Invalid range format: {item}")
+
+    return result
 
 
 class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -191,9 +251,17 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "description": (
-                    "Advanced: Configure breakpoints and brightness ranges.\n"
-                    "Breakpoints: [30, 60, 90] means 1-30%, 31-60%, 61-90%, 91-100%\n"
-                    "Brightness ranges: [[min, max], ...] for each stage"
+                    "Advanced: Configure breakpoints and brightness ranges using YAML.\n\n"
+                    "Example configuration:\n"
+                    "- breakpoints: [30, 60, 90] (creates stages 1-30%, 31-60%, 61-90%, 91-100%)\n"
+                    "- brightness_curve: linear (or quadratic, cubic)\n"
+                    "- brightness ranges: use simplified format like:\n"
+                    "  background_brightness_ranges:\n"
+                    "    - '5, 20'   # Stage 1: min 5%, max 20%\n"
+                    "    - '10, 40'  # Stage 2: min 10%, max 40%\n"
+                    "    - '20, 70'  # Stage 3: min 20%, max 70%\n"
+                    "    - '50, 100' # Stage 4: min 50%, max 100%\n"
+                    "- Use '0, 0' to turn lights off in that stage"
                 )
             },
         )
@@ -262,9 +330,17 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "description": (
-                    "Advanced: Update breakpoints and brightness ranges.\n"
-                    "Breakpoints: [30, 60, 90] means 1-30%, 31-60%, 61-90%, 91-100%\n"
-                    "Brightness ranges: [[min, max], ...] for each stage"
+                    "Advanced: Update breakpoints and brightness ranges using YAML.\n\n"
+                    "Example configuration:\n"
+                    "- breakpoints: [30, 60, 90] (creates stages 1-30%, 31-60%, 61-90%, 91-100%)\n"
+                    "- brightness_curve: linear (or quadratic, cubic)\n"
+                    "- brightness ranges: use simplified format like:\n"
+                    "  background_brightness_ranges:\n"
+                    "    - '5, 20'   # Stage 1: min 5%, max 20%\n"
+                    "    - '10, 40'  # Stage 2: min 10%, max 40%\n"
+                    "    - '20, 70'  # Stage 3: min 20%, max 70%\n"
+                    "    - '50, 100' # Stage 4: min 50%, max 100%\n"
+                    "- Use '0, 0' to turn lights off in that stage"
                 )
             },
         )
