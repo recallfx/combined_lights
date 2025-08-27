@@ -3,70 +3,78 @@
     "step": {
       "user": {
         "title": "Set up Combined Lights",
-        "description": "Configure light zones that will be controlled by breakpoints and brightness ranges.",
+        "description": "Configure light stages that will be controlled by breakpoints and brightness ranges.",
         "data": {
           "name": "Controller Name",
-          "background_lights": "Background Lights",
-          "feature_lights": "Feature Lights",
-          "ceiling_lights": "Ceiling Lights"
+          "stage_1_lights": "Stage 1 Lights",
+          "stage_2_lights": "Stage 2 Lights",
+          "stage_3_lights": "Stage 3 Lights",
+          "stage_4_lights": "Stage 4 Lights"
         },
         "data_description": {
           "name": "A unique name for this controller (e.g., Living Room Combined Lights).",
-          "background_lights": "Select all lights that act as background or ambient lighting.",
-          "feature_lights": "Select all lights that highlight specific features or objects.",
-          "ceiling_lights": "Select all main ceiling lights."
+          "stage_1_lights": "Select all lights for Stage 1 (e.g., ambient lighting).",
+          "stage_2_lights": "Select all lights for Stage 2 (e.g., feature lighting).",
+          "stage_3_lights": "Select all lights for Stage 3 (e.g., ceiling lighting).",
+          "stage_4_lights": "Select all lights for Stage 4 (e.g., task lighting)."
         }
       },
       "advanced": {
         "title": "Advanced Configuration",
-        "description": "Configure breakpoints and brightness ranges for each zone.",
+        "description": "Configure breakpoints and brightness ranges for each stage.",
         "data": {
           "breakpoints": "Slider Breakpoints",
           "brightness_curve": "Brightness Response Curve",
-          "background_brightness_ranges": "Background Brightness Ranges",
-          "feature_brightness_ranges": "Feature Brightness Ranges",
-          "ceiling_brightness_ranges": "Ceiling Brightness Ranges"
+          "stage_1_brightness_ranges": "Stage 1 Brightness Ranges",
+          "stage_2_brightness_ranges": "Stage 2 Brightness Ranges",
+          "stage_3_brightness_ranges": "Stage 3 Brightness Ranges",
+          "stage_4_brightness_ranges": "Stage 4 Brightness Ranges"
         },
         "data_description": {
-          "breakpoints": "Three values defining slider stages (e.g., [30, 60, 90] for 1-30%, 31-60%, 61-90%, 91-100%).",
-          "brightness_curve": "How brightness input translates to zone brightness. Quadratic gives more precision at low brightness levels.",
-          "background_brightness_ranges": "Four [min, max] brightness ranges for background lights at each stage.",
-          "feature_brightness_ranges": "Four [min, max] brightness ranges for feature lights at each stage.",
-          "ceiling_brightness_ranges": "Four [min, max] brightness ranges for ceiling lights at each stage."
+          "breakpoints": "Three values defining slider stages (e.g., [25, 50, 75] for 1-25%, 26-50%, 51-75%, 76-100%).",
+          "brightness_curve": "How brightness input translates to stage brightness. Quadratic gives more precision at low brightness levels.",
+          "stage_1_brightness_ranges": "Four [min, max] brightness ranges for Stage 1 at each stage.",
+          "stage_2_brightness_ranges": "Four [min, max] brightness ranges for Stage 2 at each stage.",
+          "stage_3_brightness_ranges": "Four [min, max] brightness ranges for Stage 3 at each stage.",
+          "stage_4_brightness_ranges": "Four [min, max] brightness ranges for Stage 4 at each stage."
         }
       },
       "reconfigure": {
         "title": "Reconfigure Combined Lights",
-        "description": "Update your light zones configuration.",
+        "description": "Update your light stages configuration.",
         "data": {
           "name": "Controller Name",
-          "background_lights": "Background Lights",
-          "feature_lights": "Feature Lights",
-          "ceiling_lights": "Ceiling Lights"
+          "stage_1_lights": "Stage 1 Lights",
+          "stage_2_lights": "Stage 2 Lights",
+          "stage_3_lights": "Stage 3 Lights",
+          "stage_4_lights": "Stage 4 Lights"
         },
         "data_description": {
           "name": "A unique name for this controller (e.g., Living Room Combined Lights).",
-          "background_lights": "Select all lights that act as background or ambient lighting.",
-          "feature_lights": "Select all lights that highlight specific features or objects.",
-          "ceiling_lights": "Select all main ceiling lights."
+          "stage_1_lights": "Select all lights for Stage 1 (e.g., ambient lighting).",
+          "stage_2_lights": "Select all lights for Stage 2 (e.g., feature lighting).",
+          "stage_3_lights": "Select all lights for Stage 3 (e.g., ceiling lighting).",
+          "stage_4_lights": "Select all lights for Stage 4 (e.g., task lighting)."
         }
       },
       "reconfigure_advanced": {
         "title": "Advanced Reconfiguration",
-        "description": "Update breakpoints and brightness ranges for each zone.",
+        "description": "Update breakpoints and brightness ranges for each stage.",
         "data": {
           "breakpoints": "Slider Breakpoints",
           "brightness_curve": "Brightness Response Curve",
-          "background_brightness_ranges": "Background Brightness Ranges",
-          "feature_brightness_ranges": "Feature Brightness Ranges",
-          "ceiling_brightness_ranges": "Ceiling Brightness Ranges"
+          "stage_1_brightness_ranges": "Stage 1 Brightness Ranges",
+          "stage_2_brightness_ranges": "Stage 2 Brightness Ranges",
+          "stage_3_brightness_ranges": "Stage 3 Brightness Ranges",
+          "stage_4_brightness_ranges": "Stage 4 Brightness Ranges"
         },
         "data_description": {
-          "breakpoints": "Three values defining slider stages (e.g., [30, 60, 90] for 1-30%, 31-60%, 61-90%, 91-100%).",
-          "brightness_curve": "How brightness input translates to zone brightness. Quadratic gives more precision at low brightness levels.",
-          "background_brightness_ranges": "Four [min, max] brightness ranges for background lights at each stage.",
-          "feature_brightness_ranges": "Four [min, max] brightness ranges for feature lights at each stage.",
-          "ceiling_brightness_ranges": "Four [min, max] brightness ranges for ceiling lights at each stage."
+          "breakpoints": "Three values defining slider stages (e.g., [25, 50, 75] for 1-25%, 26-50%, 51-75%, 76-100%).",
+          "brightness_curve": "How brightness input translates to stage brightness. Quadratic gives more precision at low brightness levels.",
+          "stage_1_brightness_ranges": "Four [min, max] brightness ranges for Stage 1 at each stage.",
+          "stage_2_brightness_ranges": "Four [min, max] brightness ranges for Stage 2 at each stage.",
+          "stage_3_brightness_ranges": "Four [min, max] brightness ranges for Stage 3 at each stage.",
+          "stage_4_brightness_ranges": "Four [min, max] brightness ranges for Stage 4 at each stage."
         }
       }
     },

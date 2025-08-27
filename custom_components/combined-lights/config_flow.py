@@ -12,22 +12,25 @@ from homeassistant.const import CONF_NAME
 from homeassistant.helpers import selector
 
 from .const import (
-    CONF_BACKGROUND_BRIGHTNESS_RANGES,
-    CONF_BACKGROUND_LIGHTS,
     CONF_BREAKPOINTS,
     CONF_BRIGHTNESS_CURVE,
-    CONF_CEILING_BRIGHTNESS_RANGES,
-    CONF_CEILING_LIGHTS,
-    CONF_FEATURE_BRIGHTNESS_RANGES,
-    CONF_FEATURE_LIGHTS,
+    CONF_STAGE_1_BRIGHTNESS_RANGES,
+    CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_2_BRIGHTNESS_RANGES,
+    CONF_STAGE_2_LIGHTS,
+    CONF_STAGE_3_BRIGHTNESS_RANGES,
+    CONF_STAGE_3_LIGHTS,
+    CONF_STAGE_4_BRIGHTNESS_RANGES,
+    CONF_STAGE_4_LIGHTS,
     CURVE_CUBIC,
     CURVE_LINEAR,
     CURVE_QUADRATIC,
-    DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
     DEFAULT_BREAKPOINTS,
     DEFAULT_BRIGHTNESS_CURVE,
-    DEFAULT_CEILING_BRIGHTNESS_RANGES,
-    DEFAULT_FEATURE_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_1_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
     DOMAIN,
 )
 
@@ -52,16 +55,20 @@ def create_basic_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_NAME, default=defaults.get(CONF_NAME, "")
             ): selector.TextSelector(),
             vol.Optional(
-                CONF_BACKGROUND_LIGHTS,
-                default=defaults.get(CONF_BACKGROUND_LIGHTS, []),
+                CONF_STAGE_1_LIGHTS,
+                default=defaults.get(CONF_STAGE_1_LIGHTS, []),
             ): create_light_entity_selector(),
             vol.Optional(
-                CONF_FEATURE_LIGHTS,
-                default=defaults.get(CONF_FEATURE_LIGHTS, []),
+                CONF_STAGE_2_LIGHTS,
+                default=defaults.get(CONF_STAGE_2_LIGHTS, []),
             ): create_light_entity_selector(),
             vol.Optional(
-                CONF_CEILING_LIGHTS,
-                default=defaults.get(CONF_CEILING_LIGHTS, []),
+                CONF_STAGE_3_LIGHTS,
+                default=defaults.get(CONF_STAGE_3_LIGHTS, []),
+            ): create_light_entity_selector(),
+            vol.Optional(
+                CONF_STAGE_4_LIGHTS,
+                default=defaults.get(CONF_STAGE_4_LIGHTS, []),
             ): create_light_entity_selector(),
         }
     )
@@ -96,19 +103,24 @@ def create_advanced_schema(defaults: dict[str, Any] | None = None) -> vol.Schema
         CONF_BRIGHTNESS_CURVE: defaults.get(
             CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE
         ),
-        CONF_BACKGROUND_BRIGHTNESS_RANGES: format_ranges_for_yaml(
+        CONF_STAGE_1_BRIGHTNESS_RANGES: format_ranges_for_yaml(
             defaults.get(
-                CONF_BACKGROUND_BRIGHTNESS_RANGES, DEFAULT_BACKGROUND_BRIGHTNESS_RANGES
+                CONF_STAGE_1_BRIGHTNESS_RANGES, DEFAULT_STAGE_1_BRIGHTNESS_RANGES
             )
         ),
-        CONF_FEATURE_BRIGHTNESS_RANGES: format_ranges_for_yaml(
+        CONF_STAGE_2_BRIGHTNESS_RANGES: format_ranges_for_yaml(
             defaults.get(
-                CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES
+                CONF_STAGE_2_BRIGHTNESS_RANGES, DEFAULT_STAGE_2_BRIGHTNESS_RANGES
             )
         ),
-        CONF_CEILING_BRIGHTNESS_RANGES: format_ranges_for_yaml(
+        CONF_STAGE_3_BRIGHTNESS_RANGES: format_ranges_for_yaml(
             defaults.get(
-                CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES
+                CONF_STAGE_3_BRIGHTNESS_RANGES, DEFAULT_STAGE_3_BRIGHTNESS_RANGES
+            )
+        ),
+        CONF_STAGE_4_BRIGHTNESS_RANGES: format_ranges_for_yaml(
+            defaults.get(
+                CONF_STAGE_4_BRIGHTNESS_RANGES, DEFAULT_STAGE_4_BRIGHTNESS_RANGES
             )
         ),
     }
@@ -132,22 +144,28 @@ def merge_config_with_defaults(
     advanced_config = user_input.get("advanced_config", {})
 
     # Parse brightness ranges from simplified format
-    background_ranges = parse_ranges_from_yaml(
+    stage_1_ranges = parse_ranges_from_yaml(
         advanced_config.get(
-            CONF_BACKGROUND_BRIGHTNESS_RANGES,
-            format_ranges_for_yaml(DEFAULT_BACKGROUND_BRIGHTNESS_RANGES),
+            CONF_STAGE_1_BRIGHTNESS_RANGES,
+            format_ranges_for_yaml(DEFAULT_STAGE_1_BRIGHTNESS_RANGES),
         )
     )
-    feature_ranges = parse_ranges_from_yaml(
+    stage_2_ranges = parse_ranges_from_yaml(
         advanced_config.get(
-            CONF_FEATURE_BRIGHTNESS_RANGES,
-            format_ranges_for_yaml(DEFAULT_FEATURE_BRIGHTNESS_RANGES),
+            CONF_STAGE_2_BRIGHTNESS_RANGES,
+            format_ranges_for_yaml(DEFAULT_STAGE_2_BRIGHTNESS_RANGES),
         )
     )
-    ceiling_ranges = parse_ranges_from_yaml(
+    stage_3_ranges = parse_ranges_from_yaml(
         advanced_config.get(
-            CONF_CEILING_BRIGHTNESS_RANGES,
-            format_ranges_for_yaml(DEFAULT_CEILING_BRIGHTNESS_RANGES),
+            CONF_STAGE_3_BRIGHTNESS_RANGES,
+            format_ranges_for_yaml(DEFAULT_STAGE_3_BRIGHTNESS_RANGES),
+        )
+    )
+    stage_4_ranges = parse_ranges_from_yaml(
+        advanced_config.get(
+            CONF_STAGE_4_BRIGHTNESS_RANGES,
+            format_ranges_for_yaml(DEFAULT_STAGE_4_BRIGHTNESS_RANGES),
         )
     )
 
@@ -157,9 +175,10 @@ def merge_config_with_defaults(
         CONF_BRIGHTNESS_CURVE: advanced_config.get(
             CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE
         ),
-        CONF_BACKGROUND_BRIGHTNESS_RANGES: background_ranges,
-        CONF_FEATURE_BRIGHTNESS_RANGES: feature_ranges,
-        CONF_CEILING_BRIGHTNESS_RANGES: ceiling_ranges,
+        CONF_STAGE_1_BRIGHTNESS_RANGES: stage_1_ranges,
+        CONF_STAGE_2_BRIGHTNESS_RANGES: stage_2_ranges,
+        CONF_STAGE_3_BRIGHTNESS_RANGES: stage_3_ranges,
+        CONF_STAGE_4_BRIGHTNESS_RANGES: stage_4_ranges,
     }
 
 
@@ -256,7 +275,7 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
                     "- breakpoints: [30, 60, 90] (creates stages 1-30%, 31-60%, 61-90%, 91-100%)\n"
                     "- brightness_curve: linear (or quadratic, cubic)\n"
                     "- brightness ranges: use simplified format like:\n"
-                    "  background_brightness_ranges:\n"
+                    "  stage_1_brightness_ranges:\n"
                     "    - '5, 20'   # Stage 1: min 5%, max 20%\n"
                     "    - '10, 40'  # Stage 2: min 10%, max 40%\n"
                     "    - '20, 70'  # Stage 3: min 20%, max 70%\n"
@@ -335,7 +354,7 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
                     "- breakpoints: [30, 60, 90] (creates stages 1-30%, 31-60%, 61-90%, 91-100%)\n"
                     "- brightness_curve: linear (or quadratic, cubic)\n"
                     "- brightness ranges: use simplified format like:\n"
-                    "  background_brightness_ranges:\n"
+                    "  stage_1_brightness_ranges:\n"
                     "    - '5, 20'   # Stage 1: min 5%, max 20%\n"
                     "    - '10, 40'  # Stage 2: min 10%, max 40%\n"
                     "    - '20, 70'  # Stage 3: min 20%, max 70%\n"

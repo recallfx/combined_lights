@@ -4,30 +4,34 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+import uuid
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import Context, Event, HomeAssistant, callback
 from homeassistant.exceptions import ServiceNotFound
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    CONF_BACKGROUND_BRIGHTNESS_RANGES,
-    CONF_BACKGROUND_LIGHTS,
     CONF_BREAKPOINTS,
     CONF_BRIGHTNESS_CURVE,
-    CONF_CEILING_BRIGHTNESS_RANGES,
-    CONF_CEILING_LIGHTS,
-    CONF_FEATURE_BRIGHTNESS_RANGES,
-    CONF_FEATURE_LIGHTS,
+    CONF_STAGE_1_BRIGHTNESS_RANGES,
+    CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_2_BRIGHTNESS_RANGES,
+    CONF_STAGE_2_LIGHTS,
+    CONF_STAGE_3_BRIGHTNESS_RANGES,
+    CONF_STAGE_3_LIGHTS,
+    CONF_STAGE_4_BRIGHTNESS_RANGES,
+    CONF_STAGE_4_LIGHTS,
     CURVE_CUBIC,
     CURVE_QUADRATIC,
-    DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
     DEFAULT_BREAKPOINTS,
     DEFAULT_BRIGHTNESS_CURVE,
-    DEFAULT_CEILING_BRIGHTNESS_RANGES,
-    DEFAULT_FEATURE_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_1_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,25 +46,29 @@ def get_config_value(entry: ConfigEntry, key: str, default: Any) -> Any:
 def get_light_zones(entry: ConfigEntry) -> dict[str, list[str]]:
     """Get all light zones from configuration."""
     return {
-        "background": get_config_value(entry, CONF_BACKGROUND_LIGHTS, []),
-        "feature": get_config_value(entry, CONF_FEATURE_LIGHTS, []),
-        "ceiling": get_config_value(entry, CONF_CEILING_LIGHTS, []),
+        "stage_1": get_config_value(entry, CONF_STAGE_1_LIGHTS, []),
+        "stage_2": get_config_value(entry, CONF_STAGE_2_LIGHTS, []),
+        "stage_3": get_config_value(entry, CONF_STAGE_3_LIGHTS, []),
+        "stage_4": get_config_value(entry, CONF_STAGE_4_LIGHTS, []),
     }
 
 
 def get_brightness_ranges(entry: ConfigEntry) -> dict[str, list[list[int]]]:
     """Get all brightness ranges from configuration."""
     return {
-        "background": get_config_value(
+        "stage_1": get_config_value(
             entry,
-            CONF_BACKGROUND_BRIGHTNESS_RANGES,
-            DEFAULT_BACKGROUND_BRIGHTNESS_RANGES,
+            CONF_STAGE_1_BRIGHTNESS_RANGES,
+            DEFAULT_STAGE_1_BRIGHTNESS_RANGES,
         ),
-        "feature": get_config_value(
-            entry, CONF_FEATURE_BRIGHTNESS_RANGES, DEFAULT_FEATURE_BRIGHTNESS_RANGES
+        "stage_2": get_config_value(
+            entry, CONF_STAGE_2_BRIGHTNESS_RANGES, DEFAULT_STAGE_2_BRIGHTNESS_RANGES
         ),
-        "ceiling": get_config_value(
-            entry, CONF_CEILING_BRIGHTNESS_RANGES, DEFAULT_CEILING_BRIGHTNESS_RANGES
+        "stage_3": get_config_value(
+            entry, CONF_STAGE_3_BRIGHTNESS_RANGES, DEFAULT_STAGE_3_BRIGHTNESS_RANGES
+        ),
+        "stage_4": get_config_value(
+            entry, CONF_STAGE_4_BRIGHTNESS_RANGES, DEFAULT_STAGE_4_BRIGHTNESS_RANGES
         ),
     }
 
@@ -89,6 +97,12 @@ class CombinedLight(LightEntity):
         self._attr_color_mode = ColorMode.BRIGHTNESS
         self._remove_listener = None
         self._target_brightness = 255  # Track the intended brightness
+        self._target_brightness_initialized = (
+            False  # Track if we've initialized from lights
+        )
+        self._updating_lights = False  # Flag to prevent feedback loops
+        self._expected_light_states = {}  # Track expected states after our changes
+        self._integration_context = None  # Context for integration-initiated changes
 
         # No device info - entity will be created without a device
 
@@ -97,7 +111,7 @@ class CombinedLight(LightEntity):
         await super().async_added_to_hass()
 
         # Initialize target brightness based on current state
-        if self.is_on and not hasattr(self, "_target_brightness_initialized"):
+        if self.is_on and not self._target_brightness_initialized:
             # If lights are already on, estimate target brightness from current state
             self._sync_target_brightness_from_lights()
             self._target_brightness_initialized = True
@@ -105,14 +119,37 @@ class CombinedLight(LightEntity):
         # Get all controlled lights
         all_lights = self._get_all_controlled_lights()
 
+        # Prepare a fallback context for integration-initiated changes
+        # Note: we'll prefer using the calling service's context during operations
+        if self._integration_context is None:
+            self._integration_context = Context(id=str(uuid.uuid4()), user_id=None)
+
         # Listen for state changes of controlled lights
         @callback
         def light_state_changed(event: Event) -> None:
             """Handle controlled light state changes."""
             entity_id = event.data.get("entity_id")
             if entity_id in all_lights:
-                # Only schedule update, don't recalculate target brightness
-                # This prevents feedback loops while still updating the is_on state
+                # Enhanced feedback loop prevention
+                if self._is_our_own_change(entity_id, event):
+                    return
+
+                # Check context for external change
+                if event.context and event.context.id != self._integration_context.id:
+                    _LOGGER.debug(
+                        "External change detected for %s: context_id=%s, expected=%s",
+                        entity_id,
+                        event.context.id,
+                        self._integration_context.id,
+                    )
+                    # Optionally, fire a custom event for external change
+                    self.hass.bus.async_fire(
+                        "combined_light.external_change",
+                        {"entity_id": entity_id, "context_id": event.context.id},
+                    )
+
+                # Update target brightness based on child light changes
+                self._update_target_brightness_from_children()
                 self.async_schedule_update_ha_state()
 
         self._remove_listener = self.hass.bus.async_listen(
@@ -136,25 +173,178 @@ class CombinedLight(LightEntity):
         # Simple heuristic: use the highest brightness from active zones
         # and map it to an appropriate target brightness
         max_brightness = 0
-        if zone_brightness["ceiling"]:
+        if zone_brightness["stage_4"]:
+            # Highest tier lights suggest we're in stage 4
+            max_brightness = max(
+                max_brightness,
+                breakpoints[2] * 255 // 100 + zone_brightness["stage_4"] // 2,
+            )
+        elif zone_brightness["stage_3"]:
             # Ceiling lights suggest we're in stage 3 or 4
             max_brightness = max(
                 max_brightness,
-                breakpoints[2] * 255 // 100 + zone_brightness["ceiling"] // 2,
+                breakpoints[1] * 255 // 100 + zone_brightness["stage_3"] // 2,
             )
-        elif zone_brightness["feature"]:
+        elif zone_brightness["stage_2"]:
             # Feature lights suggest we're in stage 2 or 3
             max_brightness = max(
                 max_brightness,
-                breakpoints[1] * 255 // 100 + zone_brightness["feature"] // 2,
+                breakpoints[0] * 255 // 100 + zone_brightness["stage_2"] // 2,
             )
-        elif zone_brightness["background"]:
+        elif zone_brightness["stage_1"]:
             # Background lights suggest we're in stage 1 or 2
-            max_brightness = max(max_brightness, zone_brightness["background"])
+            max_brightness = max(max_brightness, zone_brightness["stage_1"])
 
         if max_brightness > 0:
             self._target_brightness = min(255, max_brightness)
             self._attr_brightness = self._target_brightness
+
+    def _update_target_brightness_from_children(self) -> None:
+        """Update target brightness based on current child light states."""
+        # Get configuration
+        breakpoints = get_config_value(
+            self._entry, CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS
+        )
+        light_zones = get_light_zones(self._entry)
+        brightness_ranges = get_brightness_ranges(self._entry)
+
+        # Calculate what our brightness should be based on current child states
+        estimated_brightness = self._estimate_brightness_from_child_states(
+            light_zones, brightness_ranges, breakpoints
+        )
+
+        if estimated_brightness is not None:
+            self._target_brightness = estimated_brightness
+            self._attr_brightness = estimated_brightness
+
+    def _estimate_brightness_from_child_states(
+        self,
+        light_zones: dict[str, list[str]],
+        brightness_ranges: dict[str, list[list[int]]],
+        breakpoints: list[int],
+    ) -> int | None:
+        """Estimate what our brightness should be based on child light states."""
+        # Get current average brightness for each zone
+        zone_brightness = {}
+        for zone_name, lights in light_zones.items():
+            avg_brightness = self._get_average_brightness(lights)
+            if avg_brightness is not None:
+                zone_brightness[zone_name] = (
+                    avg_brightness / 255.0
+                ) * 100  # Convert to percentage
+            else:
+                zone_brightness[zone_name] = 0
+
+        # Find which stage we're most likely in based on active lights
+        likely_stage = self._determine_likely_stage(zone_brightness, brightness_ranges)
+
+        if likely_stage is None:
+            return None
+
+        # Calculate what brightness percentage would produce these zone brightnesses
+        estimated_pct = self._reverse_engineer_brightness(
+            zone_brightness, brightness_ranges, breakpoints, likely_stage
+        )
+
+        return int((estimated_pct / 100.0) * 255) if estimated_pct is not None else None
+
+    def _determine_likely_stage(
+        self,
+        zone_brightness: dict[str, float],
+        brightness_ranges: dict[str, list[list[int]]],
+    ) -> int | None:
+        """Determine which stage we're likely in based on active zones."""
+        # Look for the highest stage with active lights
+        for stage in range(3, -1, -1):  # Check stage 4, 3, 2, 1 (indices 3, 2, 1, 0)
+            for zone_name in ["stage_4", "stage_3", "stage_2", "stage_1"]:
+                if zone_brightness[zone_name] > 0:
+                    # Check if this zone should be active in this stage
+                    stage_range = brightness_ranges[zone_name][stage]
+                    if (
+                        stage_range[0] > 0 or stage_range[1] > 0
+                    ):  # Zone is active in this stage
+                        return stage
+        return None
+
+    def _reverse_engineer_brightness(
+        self,
+        zone_brightness: dict[str, float],
+        brightness_ranges: dict[str, list[list[int]]],
+        breakpoints: list[int],
+        stage: int,
+    ) -> float | None:
+        """Reverse engineer the brightness percentage from zone states."""
+        # Use the most active zone to estimate brightness
+        best_estimate = None
+
+        stage_boundaries = [
+            (0, breakpoints[0]),  # Stage 1
+            (breakpoints[0], breakpoints[1]),  # Stage 2
+            (breakpoints[1], breakpoints[2]),  # Stage 3
+            (breakpoints[2], 100),  # Stage 4
+        ]
+
+        stage_start, stage_end = stage_boundaries[stage]
+
+        for zone_name in ["stage_4", "stage_3", "stage_2", "stage_1"]:
+            if zone_brightness[zone_name] > 0:
+                stage_range = brightness_ranges[zone_name][stage]
+                if stage_range[0] > 0 or stage_range[1] > 0:
+                    # Calculate what progress within stage would give this brightness
+                    min_brightness, max_brightness = stage_range
+                    if max_brightness > min_brightness:
+                        # Calculate progress (0.0 to 1.0) within the stage range
+                        progress = (zone_brightness[zone_name] - min_brightness) / (
+                            max_brightness - min_brightness
+                        )
+                        progress = max(0.0, min(1.0, progress))
+
+                        # Map back to overall brightness percentage
+                        overall_pct = stage_start + (
+                            progress * (stage_end - stage_start)
+                        )
+
+                        # Use the highest estimate (most representative)
+                        if best_estimate is None or overall_pct > best_estimate:
+                            best_estimate = overall_pct
+
+        return best_estimate
+
+    def _is_our_own_change(self, entity_id: str, event: Event) -> bool:
+        """Determine if this state change was caused by our own actions."""
+        # Primary check: are we currently updating lights?
+        if hasattr(self, "_updating_lights") and self._updating_lights:
+            return True
+
+        # Secondary check: does this match our expected state?
+        new_state = event.data.get("new_state")
+        if new_state and entity_id in self._expected_light_states:
+            expected_brightness = self._expected_light_states[entity_id]
+            actual_brightness = new_state.attributes.get("brightness")
+
+            # Handle "off" state specially
+            if new_state.state == "off" and expected_brightness == 0:
+                # Remove from expected states and consider this our change
+                del self._expected_light_states[entity_id]
+                return True
+
+            # If the brightness matches what we set (within tolerance), it's likely our change
+            if actual_brightness is not None and expected_brightness is not None:
+                tolerance = (
+                    5  # Allow small differences due to rounding/device limitations
+                )
+                if abs(actual_brightness - expected_brightness) <= tolerance:
+                    # Remove from expected states and consider this our change
+                    del self._expected_light_states[entity_id]
+                    return True
+
+                # The brightness doesn't match what we expected - this is a manual change
+                # Clean up the expected state since it didn't happen as expected
+                del self._expected_light_states[entity_id]
+                return False
+
+        # If we have no specific expectation for this light, it's likely a manual change
+        return False
 
     async def async_will_remove_from_hass(self) -> None:
         """Entity removed from Home Assistant."""
@@ -165,7 +355,10 @@ class CombinedLight(LightEntity):
     def _get_all_controlled_lights(self) -> list[str]:
         """Get all controlled light entity IDs."""
         light_zones = get_light_zones(self._entry)
-        return sum(light_zones.values(), [])  # Flatten all zone lists
+        all_lights = []
+        for lights in light_zones.values():
+            all_lights.extend(lights)
+        return all_lights
 
     @property
     def available(self) -> bool:
@@ -213,6 +406,15 @@ class CombinedLight(LightEntity):
 
         self._attr_is_on = True
 
+        # Use the context of the service call that turned on this combined light
+        # so downstream child light updates are attributed to the same origin.
+        caller_ctx = getattr(self, "context", None)
+        if caller_ctx is not None:
+            self._integration_context = caller_ctx
+        elif self._integration_context is None:
+            # Final fallback if no prior context exists
+            self._integration_context = Context(id=str(uuid.uuid4()), user_id=None)
+
         # Get configuration using utility functions
         breakpoints = get_config_value(
             self._entry, CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS
@@ -228,7 +430,7 @@ class CombinedLight(LightEntity):
 
         # Calculate and apply brightness for each zone
         zone_brightness = {}
-        for zone_name in ["background", "feature", "ceiling"]:
+        for zone_name in ["stage_1", "stage_2", "stage_3", "stage_4"]:
             zone_brightness[zone_name] = self._calculate_zone_brightness_from_config(
                 brightness_pct, stage, brightness_ranges[zone_name], breakpoints
             )
@@ -237,14 +439,13 @@ class CombinedLight(LightEntity):
         await self._control_all_zones(light_zones, zone_brightness)
 
         _LOGGER.info(
-            "Combined light turned on - overall: %s%% (stage %s) | background: %s%% | feature: %s%% | ceiling: %s%%",
+            "Combined light turned on - overall: %s%% (stage %s) | stage_1: %s%% | stage_2: %s%% | stage_3: %s%% | stage_4: %s%%",
             int(brightness_pct),
             stage + 1,
-            int(zone_brightness["background"])
-            if zone_brightness["background"] > 0
-            else 0,
-            int(zone_brightness["feature"]) if zone_brightness["feature"] > 0 else 0,
-            int(zone_brightness["ceiling"]) if zone_brightness["ceiling"] > 0 else 0,
+            int(zone_brightness["stage_1"]) if zone_brightness["stage_1"] > 0 else 0,
+            int(zone_brightness["stage_2"]) if zone_brightness["stage_2"] > 0 else 0,
+            int(zone_brightness["stage_3"]) if zone_brightness["stage_3"] > 0 else 0,
+            int(zone_brightness["stage_4"]) if zone_brightness["stage_4"] > 0 else 0,
         )
 
         self.async_write_ha_state()
@@ -342,34 +543,67 @@ class CombinedLight(LightEntity):
         """Turn on lights with specified brightness."""
         brightness_value = int(brightness_pct * 255)
 
-        for entity_id in light_entities:
-            try:
-                await self.hass.services.async_call(
-                    "light",
-                    "turn_on",
-                    {
-                        "entity_id": entity_id,
-                        "brightness": brightness_value,
-                    },
-                )
-            except (ServiceNotFound, ValueError) as err:
-                _LOGGER.error("Failed to control light %s: %s", entity_id, err)
+        # Enhanced feedback loop prevention
+        self._updating_lights = True
+
+        try:
+            for entity_id in light_entities:
+                try:
+                    # Store expected state before making the change
+                    self._expected_light_states[entity_id] = brightness_value
+
+                    await self.hass.services.async_call(
+                        "light",
+                        "turn_on",
+                        {
+                            "entity_id": entity_id,
+                            "brightness": brightness_value,
+                        },
+                        context=self._integration_context,
+                    )
+                except (ServiceNotFound, ValueError) as err:
+                    _LOGGER.error("Failed to control light %s: %s", entity_id, err)
+                    # Remove from expected states if the call failed
+                    self._expected_light_states.pop(entity_id, None)
+        finally:
+            # Always reset the primary flag
+            self._updating_lights = False
 
     async def _turn_off_lights(self, light_entities: list[str]) -> None:
         """Turn off lights."""
-        for entity_id in light_entities:
-            try:
-                await self.hass.services.async_call(
-                    "light",
-                    "turn_off",
-                    {"entity_id": entity_id},
-                )
-            except (ServiceNotFound, ValueError) as err:
-                _LOGGER.error("Failed to turn off light %s: %s", entity_id, err)
+        # Enhanced feedback loop prevention
+        self._updating_lights = True
+
+        try:
+            for entity_id in light_entities:
+                try:
+                    # Store expected state (off = brightness 0)
+                    self._expected_light_states[entity_id] = 0
+
+                    await self.hass.services.async_call(
+                        "light",
+                        "turn_off",
+                        {"entity_id": entity_id},
+                        context=self._integration_context,
+                    )
+                except (ServiceNotFound, ValueError) as err:
+                    _LOGGER.error("Failed to turn off light %s: %s", entity_id, err)
+                    # Remove from expected states if the call failed
+                    self._expected_light_states.pop(entity_id, None)
+        finally:
+            # Always reset the primary flag
+            self._updating_lights = False
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the combined light."""
         self._attr_is_on = False
+
+        # Propagate the calling service context to child turn_off calls
+        caller_ctx = getattr(self, "context", None)
+        if caller_ctx is not None:
+            self._integration_context = caller_ctx
+        elif self._integration_context is None:
+            self._integration_context = Context(id=str(uuid.uuid4()), user_id=None)
 
         # Turn off all configured lights
         all_lights = self._get_all_controlled_lights()
