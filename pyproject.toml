@@ -1,50 +1,28 @@
 [project]
-name = "custom_components.combined_lights"
-version = "2.1.0"
+name = "combined_lights"
+version = "0.0.0"
 description = "Combine and control multiple Home Assistant light entities as a single adaptive lighting group, with zone-based brightness and advanced configuration."
-maintainers = [
-  {name = "Marius Bieliauskas", email = "mbieliau@gmail.com"}
-]
-keywords = [
-  "homeassistant",
-  "lights",
-  "custom-component",
-  "custom-integration"
-]
-classifiers = [
-  "Intended Audience :: End Users/Desktop",
-  "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3.11"
-]
-requires-python = ">=3.12.0"
+requires-python = ">=3.12"
 dependencies = [
-  "homeassistant>=2024.12.0",
-  "pytest>=8.3.4",
-  "pyyaml>=6.0.2",
-  "ruff>=0.9.7",
+    "homeassistant==2024.12.5",
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pytest-homeassistant-custom-component>=0.13.45",
+    "ruff>=0.8.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-  "homeassistant-stubs",
-  "pytest",
-  "ruff",
-  "types-PyYAML",
-  "voluptuous-stubs",
-  "pyyaml"
-]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
-[project.urls]
-"Source Code" = "https://github.com/recallfx/combined_lights"
-"Bug Reports" = "https://github.com/recallfx/combined_lights/issues"
-
-[tool.setuptools]
-py-modules = ["custom_components.combined_lights"]
-
-[tool.ruff]
-src = ["src", "tests"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+[tool.mypy]
+python_version = "3.12"
+ignore_errors = true
+follow_imports = "silent"
+ignore_missing_imports = true
+warn_incomplete_stub = true
+warn_redundant_casts = true
+warn_unused_configs = true
