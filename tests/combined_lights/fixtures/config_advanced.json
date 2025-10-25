@@ -1,0 +1,13 @@
+{
+  "name": "Advanced Test Combined Lights",
+  "stage_1_lights": ["light.stage1_1", "light.stage1_2"],
+  "stage_2_lights": ["light.stage2_1"],
+  "stage_3_lights": [],
+  "stage_4_lights": ["light.stage4_1"],
+  "breakpoints": [30, 60, 90],
+  "brightness_curve": "quadratic",
+  "stage_1_brightness_ranges": [[10, 40], [50, 70], [80, 90], [95, 100]],
+  "stage_2_brightness_ranges": [[0, 0], [20, 50], [60, 80], [85, 100]],
+  "stage_3_brightness_ranges": [[0, 0], [0, 0], [30, 60], [70, 100]],
+  "stage_4_brightness_ranges": [[0, 0], [0, 0], [0, 0], [40, 100]]
+}

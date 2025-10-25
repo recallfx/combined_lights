@@ -1,0 +1,13 @@
+{
+  "name": "Basic Test Combined Lights",
+  "stage_1_lights": ["light.basic_stage1"],
+  "stage_2_lights": [],
+  "stage_3_lights": [],
+  "stage_4_lights": [],
+  "breakpoints": [20, 50, 80],
+  "brightness_curve": "linear",
+  "stage_1_brightness_ranges": [[10, 20], [30, 50], [60, 80], [90, 100]],
+  "stage_2_brightness_ranges": [[0, 0], [0, 0], [0, 0], [0, 0]],
+  "stage_3_brightness_ranges": [[0, 0], [0, 0], [0, 0], [0, 0]],
+  "stage_4_brightness_ranges": [[0, 0], [0, 0], [0, 0], [0, 0]]
+}

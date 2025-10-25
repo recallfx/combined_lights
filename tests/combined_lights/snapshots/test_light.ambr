@@ -1,0 +1,13 @@
+# serializer version: 1
+# name: TestCombinedLight.test_entity_state_snapshot
+  dict({
+    'brightness': 255,
+    'color_mode': <ColorMode.BRIGHTNESS: 'brightness'>,
+    'is_on': True,
+    'name': 'Advanced Test Combined Lights',
+    'supported_color_modes': list([
+      <ColorMode.BRIGHTNESS: 'brightness'>,
+    ]),
+    'target_brightness': 150,
+  })
+# ---

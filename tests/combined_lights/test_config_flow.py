@@ -10,7 +10,6 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
-from custom_components.combined_lights.config_flow import CombinedLightsConfigFlow
 from custom_components.combined_lights.const import (
     CONF_BREAKPOINTS,
     CONF_BRIGHTNESS_CURVE,
@@ -22,7 +21,6 @@ from custom_components.combined_lights.const import (
     CONF_STAGE_3_LIGHTS,
     CONF_STAGE_4_BRIGHTNESS_RANGES,
     CONF_STAGE_4_LIGHTS,
-    CURVE_LINEAR,
     CURVE_QUADRATIC,
     DEFAULT_BREAKPOINTS,
     DEFAULT_BRIGHTNESS_CURVE,
@@ -101,9 +99,24 @@ class TestCombinedLightsConfigFlow:
                 "advanced_config": {
                     CONF_BREAKPOINTS: DEFAULT_BREAKPOINTS,
                     CONF_BRIGHTNESS_CURVE: DEFAULT_BRIGHTNESS_CURVE,
-                    CONF_STAGE_1_BRIGHTNESS_RANGES: ["1, 40", "41, 60", "61, 80", "81, 100"],
-                    CONF_STAGE_2_BRIGHTNESS_RANGES: ["0, 0", "1, 40", "41, 60", "61, 100"],
-                    CONF_STAGE_3_BRIGHTNESS_RANGES: ["0, 0", "0, 0", "1, 50", "51, 100"],
+                    CONF_STAGE_1_BRIGHTNESS_RANGES: [
+                        "1, 40",
+                        "41, 60",
+                        "61, 80",
+                        "81, 100",
+                    ],
+                    CONF_STAGE_2_BRIGHTNESS_RANGES: [
+                        "0, 0",
+                        "1, 40",
+                        "41, 60",
+                        "61, 100",
+                    ],
+                    CONF_STAGE_3_BRIGHTNESS_RANGES: [
+                        "0, 0",
+                        "0, 0",
+                        "1, 50",
+                        "51, 100",
+                    ],
                     CONF_STAGE_4_BRIGHTNESS_RANGES: ["0, 0", "0, 0", "0, 0", "1, 100"],
                 }
             },
@@ -152,9 +165,24 @@ class TestCombinedLightsConfigFlow:
                 "advanced_config": {
                     CONF_BREAKPOINTS: custom_breakpoints,
                     CONF_BRIGHTNESS_CURVE: CURVE_QUADRATIC,
-                    CONF_STAGE_1_BRIGHTNESS_RANGES: ["5, 30", "35, 55", "60, 80", "85, 100"],
-                    CONF_STAGE_2_BRIGHTNESS_RANGES: ["0, 0", "10, 35", "40, 65", "70, 100"],
-                    CONF_STAGE_3_BRIGHTNESS_RANGES: ["0, 0", "0, 0", "20, 50", "55, 100"],
+                    CONF_STAGE_1_BRIGHTNESS_RANGES: [
+                        "5, 30",
+                        "35, 55",
+                        "60, 80",
+                        "85, 100",
+                    ],
+                    CONF_STAGE_2_BRIGHTNESS_RANGES: [
+                        "0, 0",
+                        "10, 35",
+                        "40, 65",
+                        "70, 100",
+                    ],
+                    CONF_STAGE_3_BRIGHTNESS_RANGES: [
+                        "0, 0",
+                        "0, 0",
+                        "20, 50",
+                        "55, 100",
+                    ],
                     CONF_STAGE_4_BRIGHTNESS_RANGES: ["0, 0", "0, 0", "0, 0", "30, 100"],
                 }
             },
@@ -164,7 +192,12 @@ class TestCombinedLightsConfigFlow:
         assert result3["title"] == "Custom Combined Lights"
         assert result3["data"][CONF_BREAKPOINTS] == custom_breakpoints
         assert result3["data"][CONF_BRIGHTNESS_CURVE] == CURVE_QUADRATIC
-        assert result3["data"][CONF_STAGE_1_BRIGHTNESS_RANGES] == [[5, 30], [35, 55], [60, 80], [85, 100]]
+        assert result3["data"][CONF_STAGE_1_BRIGHTNESS_RANGES] == [
+            [5, 30],
+            [35, 55],
+            [60, 80],
+            [85, 100],
+        ]
 
     async def test_reconfigure_flow(self, hass: HomeAssistant) -> None:
         """Test the reconfigure flow."""
@@ -270,9 +303,24 @@ class TestCombinedLightsConfigFlow:
                 "advanced_config": {
                     CONF_BREAKPOINTS: [20, 40, 80],
                     CONF_BRIGHTNESS_CURVE: CURVE_QUADRATIC,
-                    CONF_STAGE_1_BRIGHTNESS_RANGES: ["10, 50", "55, 70", "75, 85", "90, 100"],
-                    CONF_STAGE_2_BRIGHTNESS_RANGES: ["0, 0", "15, 45", "50, 75", "80, 100"],
-                    CONF_STAGE_3_BRIGHTNESS_RANGES: ["0, 0", "0, 0", "25, 60", "65, 100"],
+                    CONF_STAGE_1_BRIGHTNESS_RANGES: [
+                        "10, 50",
+                        "55, 70",
+                        "75, 85",
+                        "90, 100",
+                    ],
+                    CONF_STAGE_2_BRIGHTNESS_RANGES: [
+                        "0, 0",
+                        "15, 45",
+                        "50, 75",
+                        "80, 100",
+                    ],
+                    CONF_STAGE_3_BRIGHTNESS_RANGES: [
+                        "0, 0",
+                        "0, 0",
+                        "25, 60",
+                        "65, 100",
+                    ],
                     CONF_STAGE_4_BRIGHTNESS_RANGES: ["0, 0", "0, 0", "0, 0", "40, 100"],
                 }
             },
@@ -335,7 +383,9 @@ class TestConfigFlowUtilities:
 
     def test_merge_config_with_defaults(self) -> None:
         """Test merging configuration with defaults."""
-        from custom_components.combined_lights.config_flow import merge_config_with_defaults
+        from custom_components.combined_lights.config_flow import (
+            merge_config_with_defaults,
+        )
 
         config_data = {
             CONF_NAME: "Test",
@@ -370,7 +420,7 @@ class TestConfigFlowSchemas:
         from custom_components.combined_lights.config_flow import create_basic_schema
 
         schema = create_basic_schema()
-        
+
         # Check that schema has all required fields
         schema_keys = list(schema.schema.keys())
         assert any(key.schema == CONF_NAME for key in schema_keys)
@@ -390,7 +440,7 @@ class TestConfigFlowSchemas:
         }
 
         schema = create_basic_schema(defaults)
-        
+
         # Schema should be created successfully with defaults
         assert schema is not None
 
@@ -399,18 +449,20 @@ class TestConfigFlowSchemas:
         from custom_components.combined_lights.config_flow import create_advanced_schema
 
         schema = create_advanced_schema()
-        
+
         # Check that schema has advanced_config field
         schema_keys = list(schema.schema.keys())
         assert any(key.schema == "advanced_config" for key in schema_keys)
 
     def test_create_light_entity_selector(self) -> None:
         """Test creating light entity selector."""
-        from custom_components.combined_lights.config_flow import create_light_entity_selector
+        from custom_components.combined_lights.config_flow import (
+            create_light_entity_selector,
+        )
         from homeassistant.helpers import selector
 
         selector_obj = create_light_entity_selector()
-        
+
         # Should be an EntitySelector
         assert isinstance(selector_obj, selector.EntitySelector)
 
@@ -420,6 +472,6 @@ class TestConfigFlowSchemas:
         from homeassistant.helpers import selector
 
         selector_obj = create_curve_selector()
-        
+
         # Should be a SelectSelector
         assert isinstance(selector_obj, selector.SelectSelector)

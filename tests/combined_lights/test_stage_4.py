@@ -27,7 +27,7 @@ class TestStage4Configuration:
             DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
             DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
         ]
-        
+
         for i, ranges in enumerate(stage_ranges, 1):
             assert len(ranges) == 4, f"Stage {i} should have 4 brightness ranges"
 
@@ -37,18 +37,22 @@ class TestStage4Configuration:
         expected_stage_4 = [[0, 0], [0, 0], [0, 0], [1, 100]]
         assert DEFAULT_STAGE_4_BRIGHTNESS_RANGES == expected_stage_4
 
-    @pytest.mark.parametrize("brightness_pct,expected_stage", [
-        (10, 0),   # 10% -> Stage 1
-        (25, 0),   # 25% -> Stage 1
-        (30, 1),   # 30% -> Stage 2
-        (50, 1),   # 50% -> Stage 2
-        (60, 2),   # 60% -> Stage 3
-        (75, 2),   # 75% -> Stage 3
-        (80, 3),   # 80% -> Stage 4
-        (100, 3),  # 100% -> Stage 4
-    ])
+    @pytest.mark.parametrize(
+        "brightness_pct,expected_stage",
+        [
+            (10, 0),  # 10% -> Stage 1
+            (25, 0),  # 25% -> Stage 1
+            (30, 1),  # 30% -> Stage 2
+            (50, 1),  # 50% -> Stage 2
+            (60, 2),  # 60% -> Stage 3
+            (75, 2),  # 75% -> Stage 3
+            (80, 3),  # 80% -> Stage 4
+            (100, 3),  # 100% -> Stage 4
+        ],
+    )
     def test_stage_calculation_from_brightness(self, brightness_pct, expected_stage):
         """Test that brightness percentage correctly maps to stage."""
+
         def get_stage_from_brightness(brightness_pct, breakpoints):
             """Calculate stage from brightness percentage."""
             if brightness_pct <= breakpoints[0]:
