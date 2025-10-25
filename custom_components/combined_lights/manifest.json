@@ -1,13 +1,13 @@
 {
   "domain": "combined_lights",
   "name": "Combined Lights",
-  "version": "2.1.0",
-  "documentation": "https://github.com/recallfx/combined_lights",
-  "issue_tracker": "https://github.com/recallfx/combined_lights/issues",
+  "after_dependencies": ["light"],
   "codeowners": ["@recallfx"],
-  "integration_type": "service",
   "config_flow": true,
-  "iot_class": "local_push",
   "dependencies": [],
-  "after_dependencies": ["light"]
+  "documentation": "https://github.com/recallfx/combined_lights",
+  "iot_class": "local_push",
+  "integration_type": "service",
+  "issue_tracker": "https://github.com/recallfx/combined_lights/issues",
+  "version": "2.1.0"
 }
