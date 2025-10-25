@@ -1,9 +1,9 @@
 {
   "domain": "combined_lights",
   "name": "Combined Lights",
-  "version": "2.0.0",
-  "documentation": "https://github.com/recallfx/ha-combined-lights",
-  "issue_tracker": "https://github.com/recallfx/ha-combined-lights/issues",
+  "version": "2.1.0",
+  "documentation": "https://github.com/recallfx/combined_lights",
+  "issue_tracker": "https://github.com/recallfx/combined_lights/issues",
   "codeowners": ["@recallfx"],
   "integration_type": "service",
   "config_flow": true,

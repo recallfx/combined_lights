@@ -102,10 +102,10 @@ Stage 3: [[0,0],   [0,0],   [30,50], [60,100]]
 ```
 
 ## Documentation
-See [project documentation](https://github.com/recallfx/ha-combined-lights) for full details and examples.
+See [project documentation](https://github.com/recallfx/ha-combined_lights) for full details and examples.
 
 ## Issue Tracker
-Report bugs or request features at [GitHub Issues](https://github.com/recallfx/ha-combined-lights/issues).
+Report bugs or request features at [GitHub Issues](https://github.com/recallfx/ha-combined_lights/issues).
 
 ## Code Owners
 - [@recallfx](https://github.com/recallfx)
