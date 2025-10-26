@@ -12,9 +12,10 @@ The integration creates stages based on brightness breakpoints (e.g., 1-25%, 26-
 
 - **Zone-based Control**: Organize lights into 4 configurable stages/zones
 - **Progressive Activation**: Lights activate in stages as overall brightness increases
+- **Bidirectional Sync**: Wall switch changes automatically update the combined light brightness
 - **Flexible Brightness Mapping**: Each zone can have different brightness ranges for each stage
 - **Multiple Curve Types**: Linear, quadratic, or cubic brightness curves for fine-tuned control
-- **Manual Intervention Detection**: Detects when lights are manually changed outside the integration
+- **Smart Context Awareness**: Distinguishes between manual changes and automation-driven adjustments
 - **Native Home Assistant Integration**: Uses config flow for easy setup and reconfiguration
 
 ## How It Works
@@ -27,6 +28,16 @@ The integration divides the brightness scale (0-100%) into configurable stages u
 - **Stage 4**: 76-100% overall brightness
 
 Each light zone (stage_1_lights, stage_2_lights, etc.) can be configured with brightness ranges that define how bright those lights should be during each stage.
+
+### Bidirectional Control
+
+Combined Lights works both ways:
+
+1. **Combined Light → Individual Lights**: When you adjust the combined light's brightness slider (or via automation), it calculates and applies the appropriate brightness to each zone based on your configuration.
+
+2. **Wall Switches → Combined Light**: When you use physical wall switches or other controls to change individual lights, Combined Lights detects the changes and updates its own brightness to reflect the new state. This means other automations see the combined light as the control point, not the individual switches.
+
+This bidirectional sync ensures your lighting state is always accurate, whether you control individual lights or use the combined entity.
 
 ### Example Configuration
 
@@ -123,6 +134,44 @@ Use `"0, 0"` to keep lights off during specific stages.
 - **Quadratic**: More precision at lower brightness levels
 - **Cubic**: Maximum precision at low brightness, good for fine ambient control
 
+## Understanding Bidirectional Sync
+
+One of Combined Lights' most powerful features is its ability to sync in both directions. This creates a seamless experience whether you're using digital controls or physical wall switches.
+
+### How It Works
+
+When you flip a wall switch or use a physical dimmer to adjust individual lights:
+
+1. **Detection**: Combined Lights monitors all configured light entities for state changes
+2. **Calculation**: It performs a reverse calculation to determine what overall brightness percentage would produce the current state
+3. **Update**: The combined light entity updates its brightness to match
+4. **Transparency**: Other automations and components see this as a normal combined light adjustment
+
+### Benefits
+
+- **Single Source of Truth**: Automations can monitor just the combined light, not individual switches
+- **No Manual Flags**: Other components don't need special logic to detect "manual" vs "automated" changes
+- **Physical Controls Work**: Users can use familiar wall switches without breaking automation logic
+- **Always Accurate**: The combined light brightness always reflects the actual state of your lights
+
+### Example Scenario
+
+You have an automation that turns on accent lighting when the combined light is below 30%:
+
+```yaml
+automation:
+  - trigger:
+      platform: numeric_state
+      entity_id: light.combined_lights
+      below: 30
+    action:
+      - service: light.turn_on
+        target:
+          entity_id: light.accent_lights
+```
+
+Without bidirectional sync, this automation would need to monitor multiple individual lights and handle manual intervention. With bidirectional sync, it just works—whether someone adjusts the combined light slider or flips a wall switch, the automation responds correctly.
+
 ## Usage Examples
 
 ### Progressive Home Lighting
@@ -162,7 +211,7 @@ brightness_curve: "cubic"
 
 ## Automation Integration
 
-The combined light entity works with all standard Home Assistant light controls:
+The combined light entity works seamlessly with all Home Assistant automations and controls:
 
 ```yaml
 # Simple brightness control
@@ -185,12 +234,22 @@ automation:
           brightness_pct: 75
 ```
 
+### Working with Wall Switches
+
+When users control individual lights via wall switches or physical controls:
+
+- Combined Lights automatically updates its brightness to match
+- Other automations see the change as if the combined light was adjusted
+- No "manual intervention" flags for other components to worry about
+
+This makes Combined Lights the single source of truth for your lighting state, whether controlled digitally or physically.
+
 ## Events
 
-The integration fires custom events when manual changes are detected:
+The integration fires custom events for monitoring and debugging:
 
 ```yaml
-# Listen for external changes
+# Listen for external changes (useful for debugging)
 automation:
   - trigger:
       platform: event
@@ -198,8 +257,10 @@ automation:
     action:
       - service: notify.mobile_app
         data:
-          message: "Light {{ trigger.event.data.entity_id }} was manually changed"
+          message: "Light {{ trigger.event.data.entity_id }} detected external change"
 ```
+
+Note: With bidirectional sync enabled, most wall switch changes will update the combined light's brightness rather than triggering external change events. External change events are primarily useful for debugging unexpected state changes.
 
 ## Troubleshooting
 
@@ -207,19 +268,28 @@ automation:
 
 1. Verify all light entities exist and are controllable
 2. Check Home Assistant logs for errors
-3. Ensure lights are not controlled by other automations simultaneously
+3. Ensure lights are not controlled by conflicting automations
+
+### Combined Light Brightness Not Updating from Wall Switches
+
+1. Check that the lights are properly configured in their respective zones
+2. Verify the lights support brightness reporting (check `brightness` attribute)
+3. Look for log messages about brightness sync in Home Assistant logs
+4. Ensure the change is significant enough (threshold is 5/255)
 
 ### Unexpected Brightness
 
 1. Review your brightness ranges configuration
-2. Check if manual intervention detection is working correctly
+2. Check which stage the overall brightness falls into
 3. Verify breakpoints align with your expected behavior
+4. Test with different brightness curves (linear/quadratic/cubic)
 
 ### Performance Issues
 
 1. Avoid controlling too many lights in a single zone
 2. Use appropriate timeouts for slow-responding lights
 3. Consider splitting complex setups into multiple combined light entities
+4. Check for feedback loops if using multiple automation layers
 
 ## Advanced Usage
 
@@ -273,6 +343,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Version History
 
-- **2.1.0**: Current version with zone-based configuration and advanced brightness control
+- **2.2.0**: Added bidirectional brightness synchronization - wall switches now update combined light brightness
+- **2.1.0**: Zone-based configuration and advanced brightness control
 - **2.0.0**: Major rewrite with improved architecture and config flow
 - **1.x**: Initial releases with basic functionality

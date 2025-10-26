@@ -130,44 +130,101 @@ class CombinedLight(LightEntity):
 
     def _sync_target_brightness_from_lights(self) -> None:
         """Sync target brightness from actual light states (used during initialization)."""
-        light_zones = self._zone_manager.get_light_zones()
+        # Use the new bidirectional sync method
+        self._update_target_brightness_from_children()
 
-        # Get average brightness from each zone
-        zone_brightness = {
-            zone: self._zone_manager.get_average_brightness(self.hass, lights)
-            for zone, lights in light_zones.items()
-        }
+        # If still at default, try a fallback calculation
+        if self._target_brightness == 255:
+            light_zones = self._zone_manager.get_light_zones()
 
-        # Simple heuristic: use the highest brightness from active zones
-        max_brightness = 0
-        breakpoints = self._brightness_calc._get_breakpoints()
+            # Get average brightness from each zone
+            zone_brightness = {
+                zone: self._zone_manager.get_average_brightness(self.hass, lights)
+                for zone, lights in light_zones.items()
+            }
 
-        if zone_brightness["stage_4"]:
-            max_brightness = max(
-                max_brightness,
-                breakpoints[2] * 255 // 100 + zone_brightness["stage_4"] // 2,
-            )
-        elif zone_brightness["stage_3"]:
-            max_brightness = max(
-                max_brightness,
-                breakpoints[1] * 255 // 100 + zone_brightness["stage_3"] // 2,
-            )
-        elif zone_brightness["stage_2"]:
-            max_brightness = max(
-                max_brightness,
-                breakpoints[0] * 255 // 100 + zone_brightness["stage_2"] // 2,
-            )
-        elif zone_brightness["stage_1"]:
-            max_brightness = max(max_brightness, zone_brightness["stage_1"])
+            # Simple heuristic: use the highest brightness from active zones
+            max_brightness = 0
+            breakpoints = self._brightness_calc._get_breakpoints()
 
-        if max_brightness > 0:
-            self._target_brightness = min(255, max_brightness)
+            if zone_brightness["stage_4"]:
+                max_brightness = max(
+                    max_brightness,
+                    breakpoints[2] * 255 // 100 + zone_brightness["stage_4"] // 2,
+                )
+            elif zone_brightness["stage_3"]:
+                max_brightness = max(
+                    max_brightness,
+                    breakpoints[1] * 255 // 100 + zone_brightness["stage_3"] // 2,
+                )
+            elif zone_brightness["stage_2"]:
+                max_brightness = max(
+                    max_brightness,
+                    breakpoints[0] * 255 // 100 + zone_brightness["stage_2"] // 2,
+                )
+            elif zone_brightness["stage_1"]:
+                max_brightness = max(max_brightness, zone_brightness["stage_1"])
+
+            if max_brightness > 0:
+                self._target_brightness = min(255, max_brightness)
 
     def _update_target_brightness_from_children(self) -> None:
-        """Update target brightness based on current child light states."""
-        # For now, just log that we might need to sync
-        _LOGGER.debug("Brightness sync from children triggered")
-        # Future: implement more sophisticated brightness estimation
+        """Update target brightness based on current child light states.
+
+        This method enables bidirectional sync: when wall switches or other
+        components change individual lights, the Combined Light entity updates
+        its brightness to reflect the new state.
+        """
+        # Don't update if we're actively controlling lights
+        if self._manual_detector._updating_lights:
+            return
+
+        # Don't update if hass is not set (during initialization)
+        if not self.hass:
+            return
+
+        # Get current brightness for each zone
+        zone_brightness = self._zone_manager.get_zone_brightness_dict(self.hass)
+
+        # Check if all zones are off
+        all_off = all(
+            brightness is None or brightness == 0
+            for brightness in zone_brightness.values()
+        )
+
+        if all_off:
+            # All lights are off, but don't change target brightness
+            # This preserves the last brightness for next turn_on
+            _LOGGER.debug("All child lights are off, target brightness unchanged")
+            return
+
+        # Calculate what overall brightness would produce this state
+        estimated_brightness_pct = (
+            self._brightness_calc.estimate_overall_brightness_from_zones(
+                zone_brightness
+            )
+        )
+
+        # Convert percentage to 0-255 range
+        new_target = int((estimated_brightness_pct / 100.0) * 255)
+        new_target = max(1, min(255, new_target))  # Clamp to valid range
+
+        # Only update if significantly different (avoid micro-adjustments)
+        if abs(new_target - self._target_brightness) > 5:
+            old_target = self._target_brightness
+            self._target_brightness = new_target
+            _LOGGER.info(
+                "Target brightness updated from child light changes: %s -> %s (%.1f%%)",
+                old_target,
+                new_target,
+                estimated_brightness_pct,
+            )
+        else:
+            _LOGGER.debug(
+                "Target brightness sync skipped (change too small): current=%s, estimated=%s",
+                self._target_brightness,
+                new_target,
+            )
 
     async def async_will_remove_from_hass(self) -> None:
         """Entity removed from Home Assistant."""

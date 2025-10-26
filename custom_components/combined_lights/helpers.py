@@ -173,6 +173,131 @@ class BrightnessCalculator:
             ),
         }
 
+    def estimate_overall_brightness_from_zones(
+        self, zone_brightness: dict[str, float | None]
+    ) -> float:
+        """Estimate overall brightness from current zone brightness values.
+
+        This is the inverse operation of calculate_zone_brightness. Given the current
+        brightness of each zone, estimate what overall brightness percentage would
+        produce this state.
+
+        Args:
+            zone_brightness: Dict mapping zone names to current brightness percentages
+                           (0-100). None means the zone is completely off.
+
+        Returns:
+            Estimated overall brightness percentage (0-100)
+        """
+        breakpoints = self._get_breakpoints()
+        brightness_ranges = self._get_brightness_ranges()
+
+        # Find the highest active stage
+        highest_active_stage = -1
+        for i, zone_name in enumerate(["stage_1", "stage_2", "stage_3", "stage_4"]):
+            zone_pct = zone_brightness.get(zone_name, 0.0)
+            if zone_pct and zone_pct > 0:
+                highest_active_stage = i
+
+        # If no zones are active, return 0
+        if highest_active_stage == -1:
+            return 0.0
+
+        # Use the highest active zone to estimate overall brightness
+        zone_name = f"stage_{highest_active_stage + 1}"
+        zone_pct = zone_brightness.get(zone_name, 0.0) or 0.0
+        zone_ranges = brightness_ranges[zone_name]
+
+        # Determine which stage we're in based on which zones are active
+        current_stage = highest_active_stage
+
+        # Get the brightness range for this zone in this stage
+        if current_stage >= len(zone_ranges):
+            return 0.0
+
+        stage_range = zone_ranges[current_stage]
+        min_brightness, max_brightness = stage_range
+
+        # If this zone should be off in this stage, move to the next stage
+        if min_brightness == 0 and max_brightness == 0:
+            current_stage += 1
+            if current_stage >= len(zone_ranges):
+                return 0.0
+            stage_range = zone_ranges[current_stage]
+            min_brightness, max_brightness = stage_range
+
+        # Calculate stage boundaries
+        stage_boundaries = [
+            (0, breakpoints[0]),  # Stage 1: 0-25%
+            (breakpoints[0], breakpoints[1]),  # Stage 2: 25-50%
+            (breakpoints[1], breakpoints[2]),  # Stage 3: 50-75%
+            (breakpoints[2], 100),  # Stage 4: 75-100%
+        ]
+
+        if current_stage >= len(stage_boundaries):
+            return 100.0
+
+        stage_start, stage_end = stage_boundaries[current_stage]
+
+        # Calculate progress within the brightness range (0.0 to 1.0)
+        if max_brightness == min_brightness:
+            progress = 0.5  # Middle of the stage if no range defined
+        else:
+            # Reverse the brightness mapping
+            progress = (zone_pct - min_brightness) / (max_brightness - min_brightness)
+            progress = max(0.0, min(1.0, progress))
+
+        # Reverse the curve application
+        curve_type = self._get_brightness_curve()
+        linear_progress = self._reverse_brightness_curve(progress, curve_type)
+
+        # Map progress back to overall brightness
+        overall_pct = stage_start + (linear_progress * (stage_end - stage_start))
+
+        return max(0.0, min(100.0, overall_pct))
+
+    def _reverse_brightness_curve(self, curved_value: float, curve_type: str) -> float:
+        """Reverse the brightness curve to get linear progress.
+
+        Args:
+            curved_value: The curved brightness value (0.0-1.0)
+            curve_type: Type of curve (linear, quadratic, cubic)
+
+        Returns:
+            Linear progress value (0.0-1.0)
+        """
+        if curve_type == CURVE_QUADRATIC:
+            # Reverse of: 0.4 * progress + 0.6 * (progress**0.5)
+            # This is approximate - we'll use iterative approach
+            if curved_value < 0.1:
+                # Reverse of: progress * 0.9 + (progress**0.5) * 0.1
+                # Approximate solution
+                return curved_value / 0.95
+            # Solve: 0.4*x + 0.6*sqrt(x) = curved_value
+            # Approximate with Newton's method iteration (simplified)
+            x = curved_value  # Initial guess
+            for _ in range(5):  # Few iterations for convergence
+                fx = 0.4 * x + 0.6 * (x**0.5) - curved_value
+                fpx = 0.4 + 0.3 / (x**0.5) if x > 0 else 1
+                x = max(0, x - fx / fpx)
+            return x
+
+        if curve_type == CURVE_CUBIC:
+            # Reverse of: 0.2 * progress + 0.8 * (progress ** (1/3))
+            if curved_value < 0.1:
+                # Reverse of: progress * 0.8 + (progress ** (1/3)) * 0.2
+                return curved_value / 0.9
+            # Solve: 0.2*x + 0.8*x^(1/3) = curved_value
+            x = curved_value  # Initial guess
+            for _ in range(5):
+                fx = 0.2 * x + 0.8 * (x ** (1 / 3)) - curved_value
+                fpx = 0.2 + (0.8 / 3) / (x ** (2 / 3)) if x > 0 else 1
+                x = max(0, x - fx / fpx)
+            return x
+
+        # Linear: no transformation needed
+        return curved_value
+
 
 class LightController:
     """Handles light control operations."""
@@ -399,3 +524,30 @@ class ZoneManager:
             if state and state.state == "on":
                 return True
         return False
+
+    def get_zone_brightness_dict(self, hass: HomeAssistant) -> dict[str, float | None]:
+        """Get current brightness for each zone.
+
+        Args:
+            hass: Home Assistant instance
+
+        Returns:
+            Dictionary mapping zone names to average brightness percentage (0-100)
+            or None if zone is completely off
+        """
+        zones = self.get_light_zones()
+        zone_brightness = {}
+
+        for zone_name, lights in zones.items():
+            if not lights:
+                zone_brightness[zone_name] = None
+                continue
+
+            avg_brightness = self.get_average_brightness(hass, lights)
+            if avg_brightness is None:
+                zone_brightness[zone_name] = None
+            else:
+                # Convert from 0-255 to 0-100
+                zone_brightness[zone_name] = (avg_brightness / 255.0) * 100
+
+        return zone_brightness
