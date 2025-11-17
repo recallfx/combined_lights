@@ -256,6 +256,58 @@ class BrightnessCalculator:
 
         return max(0.0, min(100.0, overall_pct))
 
+    def estimate_manual_indicator_from_zones(
+        self, zone_brightness: dict[str, float | None]
+    ) -> float:
+        """Estimate slider percentage for manual updates using stage coverage.
+
+        This treats each stage as an equal portion of the slider and bases the
+        indicator on how many stages are active plus progress through the
+        highest active stage. It keeps the UI intuitive when only a subset of
+        stages is toggled manually (e.g., stage 4 lights on alone ≈ 25%).
+        """
+
+        stage_names = ["stage_1", "stage_2", "stage_3", "stage_4"]
+        total_stages = len(stage_names)
+        brightness_ranges = self._get_brightness_ranges()
+
+        active_indices: list[int] = []
+        stage_progress: dict[int, float] = {}
+
+        for idx, zone_name in enumerate(stage_names):
+            zone_pct = zone_brightness.get(zone_name)
+            if zone_pct is None or zone_pct <= 0:
+                continue
+
+            zone_ranges = brightness_ranges[zone_name]
+            if idx >= len(zone_ranges):
+                continue
+
+            min_brightness, max_brightness = zone_ranges[idx]
+            if max_brightness <= min_brightness:
+                normalized = 1.0
+            else:
+                normalized = (zone_pct - min_brightness) / (
+                    max_brightness - min_brightness
+                )
+                normalized = max(0.0, min(1.0, normalized))
+
+            active_indices.append(idx)
+            stage_progress[idx] = normalized
+
+        if not active_indices:
+            return 0.0
+
+        active_count = len(active_indices)
+        highest_stage = max(active_indices)
+        progress = stage_progress.get(highest_stage, 1.0)
+        stage_fraction = 100.0 / total_stages
+
+        return max(
+            0.0,
+            min(100.0, stage_fraction * (active_count - 1) + progress * stage_fraction),
+        )
+
     def _reverse_brightness_curve(self, curved_value: float, curve_type: str) -> float:
         """Reverse the brightness curve to get linear progress.
 

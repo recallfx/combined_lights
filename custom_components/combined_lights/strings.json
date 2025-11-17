@@ -9,14 +9,16 @@
           "stage_1_lights": "Stage 1 Lights",
           "stage_2_lights": "Stage 2 Lights",
           "stage_3_lights": "Stage 3 Lights",
-          "stage_4_lights": "Stage 4 Lights"
+          "stage_4_lights": "Stage 4 Lights",
+          "enable_back_propagation": "Sync Manual Changes"
         },
         "data_description": {
           "name": "A unique name for this controller (e.g., Living Room Combined Lights).",
           "stage_1_lights": "Select all lights for Stage 1 (e.g., ambient lighting).",
           "stage_2_lights": "Select all lights for Stage 2 (e.g., feature lighting).",
           "stage_3_lights": "Select all lights for Stage 3 (e.g., ceiling lighting).",
-          "stage_4_lights": "Select all lights for Stage 4 (e.g., task lighting)."
+          "stage_4_lights": "Select all lights for Stage 4 (e.g., task lighting).",
+          "enable_back_propagation": "If enabled, manual tweaks to any stage will immediately propagate to all stages to maintain the combined scene."
         }
       },
       "advanced": {
@@ -47,14 +49,16 @@
           "stage_1_lights": "Stage 1 Lights",
           "stage_2_lights": "Stage 2 Lights",
           "stage_3_lights": "Stage 3 Lights",
-          "stage_4_lights": "Stage 4 Lights"
+          "stage_4_lights": "Stage 4 Lights",
+          "enable_back_propagation": "Sync Manual Changes"
         },
         "data_description": {
           "name": "A unique name for this controller (e.g., Living Room Combined Lights).",
           "stage_1_lights": "Select all lights for Stage 1 (e.g., ambient lighting).",
           "stage_2_lights": "Select all lights for Stage 2 (e.g., feature lighting).",
           "stage_3_lights": "Select all lights for Stage 3 (e.g., ceiling lighting).",
-          "stage_4_lights": "Select all lights for Stage 4 (e.g., task lighting)."
+          "stage_4_lights": "Select all lights for Stage 4 (e.g., task lighting).",
+          "enable_back_propagation": "When enabled, the integration automatically balances other stages after manual changes."
         }
       },
       "reconfigure_advanced": {

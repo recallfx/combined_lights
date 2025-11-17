@@ -13,6 +13,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from custom_components.combined_lights.const import (
     CONF_BREAKPOINTS,
     CONF_BRIGHTNESS_CURVE,
+    CONF_ENABLE_BACK_PROPAGATION,
     CONF_STAGE_1_BRIGHTNESS_RANGES,
     CONF_STAGE_1_LIGHTS,
     CONF_STAGE_2_BRIGHTNESS_RANGES,
@@ -24,6 +25,7 @@ from custom_components.combined_lights.const import (
     CURVE_QUADRATIC,
     DEFAULT_BREAKPOINTS,
     DEFAULT_BRIGHTNESS_CURVE,
+    DEFAULT_ENABLE_BACK_PROPAGATION,
     DEFAULT_STAGE_1_BRIGHTNESS_RANGES,
     DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
     DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
@@ -136,6 +138,7 @@ class TestCombinedLightsConfigFlow:
             CONF_STAGE_2_BRIGHTNESS_RANGES: DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
             CONF_STAGE_3_BRIGHTNESS_RANGES: DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
             CONF_STAGE_4_BRIGHTNESS_RANGES: DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
+            CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
         }
 
     async def test_form_advanced_step_custom_config(self, hass: HomeAssistant) -> None:
@@ -219,6 +222,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_2_BRIGHTNESS_RANGES: DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
                 CONF_STAGE_3_BRIGHTNESS_RANGES: DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
                 CONF_STAGE_4_BRIGHTNESS_RANGES: DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
+                CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
             },
             options={},
             entry_id=str(uuid4()),
@@ -262,6 +266,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_2_BRIGHTNESS_RANGES: DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
                 CONF_STAGE_3_BRIGHTNESS_RANGES: DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
                 CONF_STAGE_4_BRIGHTNESS_RANGES: DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
+                CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
             },
             options={},
             entry_id=str(uuid4()),

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 import uuid
 
@@ -12,6 +14,7 @@ from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Context, Event, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
 from .helpers import (
     BrightnessCalculator,
     LightController,
@@ -75,6 +78,12 @@ class CombinedLight(LightEntity):
         self._remove_listener = None
         self._target_brightness = 255
         self._target_brightness_initialized = False
+        self._back_propagation_enabled = get_config_value(
+            entry, CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
+        )
+        self._transition_guard_deadline = 0.0
+        self._transition_guard_duration = 1.5  # seconds to ignore feedback after writes
+        self._back_prop_task: asyncio.Task | None = None
 
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant."""
@@ -121,7 +130,7 @@ class CombinedLight(LightEntity):
                 )
 
             # Update target brightness based on child light changes
-            self._update_target_brightness_from_children()
+            self._update_target_brightness_from_children(manual_update=is_manual)
             self.async_schedule_update_ha_state()
 
         self._remove_listener = self.hass.bus.async_listen(
@@ -168,48 +177,72 @@ class CombinedLight(LightEntity):
             if max_brightness > 0:
                 self._target_brightness = min(255, max_brightness)
 
-    def _update_target_brightness_from_children(self) -> None:
-        """Update target brightness based on current child light states.
+    def _build_zone_brightness_map(
+        self, brightness_pct: float, light_zones: dict[str, list[str]]
+    ) -> dict[str, float]:
+        """Calculate per-zone brightness targets for a given overall percentage."""
 
-        This method enables bidirectional sync: when wall switches or other
-        components change individual lights, the Combined Light entity updates
-        its brightness to reflect the new state.
-        """
-        # Don't update if we're actively controlling lights
-        if self._manual_detector._updating_lights:
+        return {
+            zone_name: self._brightness_calc.calculate_zone_brightness(
+                brightness_pct, zone_name
+            )
+            for zone_name in light_zones.keys()
+        }
+
+    def _start_transition_guard(self) -> None:
+        """Temporarily ignore feedback while lights transition."""
+
+        if self._transition_guard_duration <= 0:
+            self._transition_guard_deadline = 0.0
             return
 
-        # Don't update if hass is not set (during initialization)
+        self._transition_guard_deadline = (
+            time.monotonic() + self._transition_guard_duration
+        )
+
+    def _update_target_brightness_from_children(
+        self, *, manual_update: bool = False
+    ) -> None:
+        """Update target brightness based on current child light states."""
+
         if not self.hass:
             return
 
-        # Get current brightness for each zone
-        zone_brightness = self._zone_manager.get_zone_brightness_dict(self.hass)
+        # Skip updates while we are in the middle of applying our own changes.
+        if self._manual_detector._updating_lights:
+            _LOGGER.debug("Skipping sync while integration is updating lights")
+            return
 
-        # Check if all zones are off
+        if time.monotonic() < self._transition_guard_deadline:
+            _LOGGER.debug("Skipping sync during transition guard window")
+            return
+
+        zone_brightness = self._zone_manager.get_zone_brightness_dict(self.hass)
         all_off = all(
             brightness is None or brightness == 0
             for brightness in zone_brightness.values()
         )
 
         if all_off:
-            # All lights are off, but don't change target brightness
-            # This preserves the last brightness for next turn_on
-            _LOGGER.debug("All child lights are off, target brightness unchanged")
+            _LOGGER.debug("All child lights off, preserving previous target")
             return
 
-        # Calculate what overall brightness would produce this state
-        estimated_brightness_pct = (
-            self._brightness_calc.estimate_overall_brightness_from_zones(
-                zone_brightness
+        if manual_update and not self._back_propagation_enabled:
+            estimated_brightness_pct = (
+                self._brightness_calc.estimate_manual_indicator_from_zones(
+                    zone_brightness
+                )
             )
-        )
+        else:
+            estimated_brightness_pct = (
+                self._brightness_calc.estimate_overall_brightness_from_zones(
+                    zone_brightness
+                )
+            )
 
-        # Convert percentage to 0-255 range
         new_target = int((estimated_brightness_pct / 100.0) * 255)
-        new_target = max(1, min(255, new_target))  # Clamp to valid range
+        new_target = max(1, min(255, new_target))
 
-        # Only update if significantly different (avoid micro-adjustments)
         if abs(new_target - self._target_brightness) > 5:
             old_target = self._target_brightness
             self._target_brightness = new_target
@@ -226,10 +259,15 @@ class CombinedLight(LightEntity):
                 new_target,
             )
 
+        if manual_update and self._back_propagation_enabled:
+            self._schedule_back_propagation(estimated_brightness_pct)
+
     async def async_will_remove_from_hass(self) -> None:
         """Entity removed from Home Assistant."""
         if self._remove_listener:
             self._remove_listener()
+        if self._back_prop_task and not self._back_prop_task.done():
+            self._back_prop_task.cancel()
         await super().async_will_remove_from_hass()
 
     @property
@@ -267,13 +305,9 @@ class CombinedLight(LightEntity):
 
         # Calculate zone brightnesses using helper
         light_zones = self._zone_manager.get_light_zones()
-        zone_brightness = {}
-        for zone_name in light_zones.keys():
-            zone_brightness[zone_name] = (
-                self._brightness_calc.calculate_zone_brightness(
-                    brightness_pct, zone_name
-                )
-            )
+        zone_brightness = self._build_zone_brightness_map(
+            brightness_pct, light_zones
+        )
 
         # Control all zones
         await self._control_all_zones(light_zones, zone_brightness, caller_ctx)
@@ -308,6 +342,7 @@ class CombinedLight(LightEntity):
     ) -> None:
         """Control all light zones based on calculated brightness values."""
         # Set updating flag to prevent feedback loops
+        self._start_transition_guard()
         self._manual_detector.set_updating_flag(True)
 
         try:
@@ -337,6 +372,35 @@ class CombinedLight(LightEntity):
         finally:
             self._manual_detector.set_updating_flag(False)
 
+    def _schedule_back_propagation(self, overall_pct: float) -> None:
+        """Schedule an asynchronous back-propagation run."""
+
+        if not self.hass:
+            return
+
+        if self._back_prop_task and not self._back_prop_task.done():
+            self._back_prop_task.cancel()
+
+        self._back_prop_task = self.hass.async_create_task(
+            self._async_apply_back_propagation(overall_pct)
+        )
+
+    async def _async_apply_back_propagation(self, overall_pct: float) -> None:
+        """Drive all zones to match the inferred overall brightness."""
+
+        light_zones = self._zone_manager.get_light_zones()
+        zone_brightness = self._build_zone_brightness_map(overall_pct, light_zones)
+
+        caller_ctx = Context(id=str(uuid.uuid4()), user_id=None)
+        self._manual_detector.set_integration_context(caller_ctx)
+
+        try:
+            await self._control_all_zones(light_zones, zone_brightness, caller_ctx)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Failed to back-propagate manual change to all stages")
+
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the combined light."""
         self._attr_is_on = False
@@ -352,6 +416,7 @@ class CombinedLight(LightEntity):
 
         if all_lights:
             # Set updating flag to prevent feedback loops
+            self._start_transition_guard()
             self._manual_detector.set_updating_flag(True)
             try:
                 expected_states = await self._light_controller.turn_off_lights(

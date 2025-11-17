@@ -157,6 +157,23 @@ class TestBidirectionalSync:
         )
         assert estimated == 0.0
 
+    def test_manual_indicator_estimation(self, mock_entry):
+        """Manual indicator should scale with stage coverage."""
+        brightness_calc = BrightnessCalculator(mock_entry)
+
+        zone_brightness = {
+            "stage_1": None,
+            "stage_2": None,
+            "stage_3": None,
+            "stage_4": 100.0,
+        }
+
+        estimated = brightness_calc.estimate_manual_indicator_from_zones(
+            zone_brightness
+        )
+
+        assert 20 < estimated < 30  # ≈ one quarter
+
     async def test_update_target_brightness_from_children(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
@@ -257,6 +274,33 @@ class TestBidirectionalSync:
 
         # Should remain relatively stable (within a reasonable range)
         # The exact value depends on the calculation, but it shouldn't jump wildly
+
+    async def test_manual_update_indicator_mode(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual updates without back propagation should use coverage indicator."""
+        combined_light.hass = hass
+        combined_light._target_brightness = 200
+
+        hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
+
+        combined_light._update_target_brightness_from_children(manual_update=True)
+
+        assert 60 < combined_light._target_brightness < 70  # ≈ 25%
+
+    async def test_manual_update_triggers_back_propagation(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual updates should schedule back propagation when enabled."""
+        combined_light.hass = hass
+        combined_light._back_propagation_enabled = True
+        combined_light._schedule_back_propagation = MagicMock()
+
+        hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
+
+        combined_light._update_target_brightness_from_children(manual_update=True)
+
+        combined_light._schedule_back_propagation.assert_called_once()
 
     def test_reverse_curve_linear(self, mock_entry):
         """Test reversing linear brightness curve."""

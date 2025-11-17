@@ -13,6 +13,7 @@ The integration creates stages based on brightness breakpoints (e.g., 1-25%, 26-
 - **Zone-based Control**: Organize lights into 4 configurable stages/zones
 - **Progressive Activation**: Lights activate in stages as overall brightness increases
 - **Bidirectional Sync**: Wall switch changes automatically update the combined light brightness
+- **Configurable Back-Propagation**: Optionally push manual adjustments to every stage to keep the scene aligned
 - **Flexible Brightness Mapping**: Each zone can have different brightness ranges for each stage
 - **Multiple Curve Types**: Linear, quadratic, or cubic brightness curves for fine-tuned control
 - **Smart Context Awareness**: Distinguishes between manual changes and automation-driven adjustments
@@ -36,6 +37,13 @@ Combined Lights works both ways:
 1. **Combined Light → Individual Lights**: When you adjust the combined light's brightness slider (or via automation), it calculates and applies the appropriate brightness to each zone based on your configuration.
 
 2. **Wall Switches → Combined Light**: When you use physical wall switches or other controls to change individual lights, Combined Lights detects the changes and updates its own brightness to reflect the new state. This means other automations see the combined light as the control point, not the individual switches.
+
+#### Back-Propagation vs Indicator-Only Updates
+
+- **Indicator-Only (default)**: Manual tweaks simply adjust the combined light's reported percentage based on how many stages are active. For example, turning on only a Stage 4 light will display roughly 25%, preventing the slider from jumping straight to 100%.
+- **Back-Propagation Enabled**: Toggle the **“Sync Manual Changes”** option in the config flow if you want manual changes to immediately drive *all* relevant stages so the entire scene matches the inferred combined brightness.
+
+This toggle provides the best of both worlds: calm indicator behavior by default and full scene correction when desired.
 
 This bidirectional sync ensures your lighting state is always accurate, whether you control individual lights or use the combined entity.
 

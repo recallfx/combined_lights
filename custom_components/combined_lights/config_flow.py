@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_BREAKPOINTS,
     CONF_BRIGHTNESS_CURVE,
+    CONF_ENABLE_BACK_PROPAGATION,
     CONF_STAGE_1_BRIGHTNESS_RANGES,
     CONF_STAGE_1_LIGHTS,
     CONF_STAGE_2_BRIGHTNESS_RANGES,
@@ -70,6 +71,10 @@ def create_basic_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_STAGE_4_LIGHTS,
                 default=defaults.get(CONF_STAGE_4_LIGHTS, []),
             ): create_light_entity_selector(),
+            vol.Optional(
+                CONF_ENABLE_BACK_PROPAGATION,
+                default=defaults.get(CONF_ENABLE_BACK_PROPAGATION, False),
+            ): selector.BooleanSelector(),
         }
     )
 

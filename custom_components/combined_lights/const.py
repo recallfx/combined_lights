@@ -29,6 +29,10 @@ CONF_STAGE_4_BRIGHTNESS_RANGES = (
     "stage_4_brightness_ranges"  # [[0,0], [0,0], [0,0], [1,100]]
 )
 
+# Optional behavior switches
+CONF_ENABLE_BACK_PROPAGATION = "enable_back_propagation"
+DEFAULT_ENABLE_BACK_PROPAGATION = False
+
 # Brightness curve configuration
 CONF_BRIGHTNESS_CURVE = "brightness_curve"  # "linear", "quadratic", or "cubic"
 
