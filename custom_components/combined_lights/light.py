@@ -209,7 +209,7 @@ class CombinedLight(LightEntity):
             return
 
         # Skip updates while we are in the middle of applying our own changes.
-        if self._manual_detector._updating_lights:
+        if self._manual_detector._updating_lights and not manual_update:
             _LOGGER.debug("Skipping sync while integration is updating lights")
             return
 

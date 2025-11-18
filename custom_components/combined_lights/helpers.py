@@ -461,12 +461,18 @@ class ManualChangeDetector:
         Returns:
             Tuple of (is_manual, reason)
         """
-        # Primary check: are we currently updating lights?
-        if self._updating_lights:
-            return False, "integration_updating"
-
         new_state = event.data.get("new_state")
+        actual_brightness = (
+            new_state.attributes.get("brightness") if new_state else None
+        )
         expected_brightness = self._expected_states.get(entity_id)
+        context_is_external = (
+            self._integration_context
+            and event.context
+            and event.context.id != self._integration_context.id
+        )
+        brightness_mismatch = False
+        matched_expected = False
 
         # Secondary check: does this match our expected state?
         if expected_brightness is not None:
@@ -488,18 +494,29 @@ class ManualChangeDetector:
                 ):
                     # Remove from expected states and consider this our change
                     del self._expected_states[entity_id]
-                    return False, "expected_brightness_match"
+                    matched_expected = True
+                else:
+                    brightness_mismatch = True
+            else:
+                brightness_mismatch = True
 
-                # The brightness doesn't match what we expected - this is a manual change
-                del self._expected_states[entity_id]
+        if self._updating_lights and not context_is_external:
+            if brightness_mismatch:
+                self._expected_states.pop(entity_id, None)
                 return True, "brightness_mismatch"
+            if matched_expected:
+                return False, "expected_brightness_match"
+            return False, "integration_updating"
+
+        if brightness_mismatch:
+            self._expected_states.pop(entity_id, None)
+            return True, "brightness_mismatch"
+
+        if matched_expected:
+            return False, "expected_brightness_match"
 
         # Tertiary check: context-based detection
-        if (
-            self._integration_context
-            and event.context
-            and event.context.id != self._integration_context.id
-        ):
+        if context_is_external:
             return True, "external_context"
 
         # If we have no specific expectation for this light, it's likely a manual change
