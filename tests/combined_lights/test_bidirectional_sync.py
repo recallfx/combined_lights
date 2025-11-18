@@ -303,6 +303,36 @@ class TestBidirectionalSync:
 
         combined_light._schedule_back_propagation.assert_called_once()
 
+    async def test_back_propagation_excludes_changed_entity(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Back propagation should exclude the manually changed entity."""
+        combined_light.hass = hass
+        combined_light._back_propagation_enabled = True
+        combined_light._light_controller = MagicMock()
+        combined_light._light_controller.turn_on_lights = MagicMock(
+            return_value={}
+        )
+        combined_light._light_controller.turn_off_lights = MagicMock(
+            return_value={}
+        )
+
+        # Simulate manual change to stage1_1
+        changed_entity = "light.stage1_1"
+        overall_pct = 50.0
+
+        # Call back propagation directly
+        await combined_light._async_apply_back_propagation(overall_pct, changed_entity)
+
+        # Verify that turn_on_lights was called but WITHOUT the changed entity
+        calls = combined_light._light_controller.turn_on_lights.call_args_list
+        for call in calls:
+            entities = call[0][0]  # First positional arg is the entity list
+            assert changed_entity not in entities, (
+                f"Changed entity {changed_entity} should be excluded from "
+                f"back-propagation but was found in: {entities}"
+            )
+
 
 class TestManualChangeDetector:
     """Tests for manual override detection logic."""

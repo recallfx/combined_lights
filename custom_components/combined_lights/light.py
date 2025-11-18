@@ -127,7 +127,9 @@ class CombinedLight(LightEntity):
                 )
 
             # Update target brightness based on child light changes
-            self._update_target_brightness_from_children(manual_update=is_manual)
+            self._update_target_brightness_from_children(
+                manual_update=is_manual, changed_entity_id=entity_id if is_manual else None
+            )
             self.async_schedule_update_ha_state()
 
         self._remove_listener = self.hass.bus.async_listen(
@@ -187,7 +189,7 @@ class CombinedLight(LightEntity):
         }
 
     def _update_target_brightness_from_children(
-        self, *, manual_update: bool = False
+        self, *, manual_update: bool = False, changed_entity_id: str | None = None
     ) -> None:
         """Update target brightness based on current child light states."""
 
@@ -242,7 +244,7 @@ class CombinedLight(LightEntity):
             )
 
         if manual_update and self._back_propagation_enabled:
-            self._schedule_back_propagation(estimated_brightness_pct)
+            self._schedule_back_propagation(estimated_brightness_pct, changed_entity_id)
 
     async def async_will_remove_from_hass(self) -> None:
         """Entity removed from Home Assistant."""
@@ -353,7 +355,9 @@ class CombinedLight(LightEntity):
         finally:
             self._manual_detector.set_updating_flag(False)
 
-    def _schedule_back_propagation(self, overall_pct: float) -> None:
+    def _schedule_back_propagation(
+        self, overall_pct: float, changed_entity_id: str | None = None
+    ) -> None:
         """Schedule an asynchronous back-propagation run."""
 
         if not self.hass:
@@ -363,11 +367,18 @@ class CombinedLight(LightEntity):
             self._back_prop_task.cancel()
 
         self._back_prop_task = self.hass.async_create_task(
-            self._async_apply_back_propagation(overall_pct)
+            self._async_apply_back_propagation(overall_pct, changed_entity_id)
         )
 
-    async def _async_apply_back_propagation(self, overall_pct: float) -> None:
-        """Drive all zones to match the inferred overall brightness."""
+    async def _async_apply_back_propagation(
+        self, overall_pct: float, changed_entity_id: str | None = None
+    ) -> None:
+        """Drive all zones to match the inferred overall brightness.
+        
+        Args:
+            overall_pct: Target overall brightness percentage
+            changed_entity_id: Entity that was manually changed (will be excluded)
+        """
 
         light_zones = self._zone_manager.get_light_zones()
         zone_brightness = self._build_zone_brightness_map(overall_pct, light_zones)
@@ -375,8 +386,17 @@ class CombinedLight(LightEntity):
         caller_ctx = Context(id=str(uuid.uuid4()), user_id=None)
         self._manual_detector.set_integration_context(caller_ctx)
 
+        # Filter out the manually changed entity from each zone
+        if changed_entity_id:
+            filtered_zones = {
+                zone: [light for light in lights if light != changed_entity_id]
+                for zone, lights in light_zones.items()
+            }
+        else:
+            filtered_zones = light_zones
+
         try:
-            await self._control_all_zones(light_zones, zone_brightness, caller_ctx)
+            await self._control_all_zones(filtered_zones, zone_brightness, caller_ctx)
         except asyncio.CancelledError:
             raise
         except Exception:  # pylint: disable=broad-except
