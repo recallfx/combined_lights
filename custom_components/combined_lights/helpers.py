@@ -381,6 +381,13 @@ class LightController:
         brightness_value = int(brightness_pct / 100.0 * 255)
         expected_states = {}
 
+        _LOGGER.info(
+            "LightController.turn_on_lights: brightness_pct=%.1f%%, brightness_value=%d, entities=%s",
+            brightness_pct,
+            brightness_value,
+            light_entities,
+        )
+
         for entity_id in light_entities:
             try:
                 await self._hass.services.async_call(
@@ -393,6 +400,11 @@ class LightController:
                     context=context,
                 )
                 expected_states[entity_id] = brightness_value
+                _LOGGER.debug(
+                    "Called light.turn_on for %s with brightness %d",
+                    entity_id,
+                    brightness_value,
+                )
             except (ServiceNotFound, ValueError) as err:
                 _LOGGER.error("Failed to control light %s: %s", entity_id, err)
 

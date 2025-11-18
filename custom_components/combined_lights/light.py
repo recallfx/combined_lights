@@ -287,10 +287,21 @@ class CombinedLight(LightEntity):
         # Convert brightness to percentage (0-100)
         brightness_pct = (self._target_brightness / 255.0) * 100
 
+        _LOGGER.info(
+            "Combined light async_turn_on called with target brightness %d (%.1f%%)",
+            self._target_brightness,
+            brightness_pct,
+        )
+
         # Calculate zone brightnesses using helper
         light_zones = self._zone_manager.get_light_zones()
         zone_brightness = self._build_zone_brightness_map(
             brightness_pct, light_zones
+        )
+
+        _LOGGER.info(
+            "Calculated zone brightnesses: %s",
+            {k: f"{v:.1f}%" for k, v in zone_brightness.items()},
         )
 
         # Control all zones
@@ -331,12 +342,24 @@ class CombinedLight(LightEntity):
         try:
             for zone_name, lights in light_zones.items():
                 if not lights:
+                    _LOGGER.debug("Skipping zone %s - no lights", zone_name)
                     continue
 
                 brightness = zone_brightness[zone_name]
+                _LOGGER.debug(
+                    "Processing zone %s with lights %s at brightness %d",
+                    zone_name,
+                    lights,
+                    brightness,
+                )
                 if brightness > 0:
                     expected_states = await self._light_controller.turn_on_lights(
                         lights, brightness, context
+                    )
+                    _LOGGER.debug(
+                        "Zone %s turned on with expected states: %s",
+                        zone_name,
+                        expected_states,
                     )
                     # Track expected states
                     for entity_id, brightness_val in expected_states.items():
@@ -392,8 +415,20 @@ class CombinedLight(LightEntity):
                 zone: [light for light in lights if light != changed_entity_id]
                 for zone, lights in light_zones.items()
             }
+            _LOGGER.info(
+                "Back-propagation excluding %s from zones. Original: %s, Filtered: %s",
+                changed_entity_id,
+                light_zones,
+                filtered_zones,
+            )
         else:
             filtered_zones = light_zones
+
+        _LOGGER.info(
+            "Back-propagation applying overall_pct=%.1f%% to zones with brightnesses: %s",
+            overall_pct,
+            zone_brightness,
+        )
 
         try:
             await self._control_all_zones(filtered_zones, zone_brightness, caller_ctx)
