@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Any
 import uuid
 
@@ -81,8 +80,6 @@ class CombinedLight(LightEntity):
         self._back_propagation_enabled = get_config_value(
             entry, CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
         )
-        self._transition_guard_deadline = 0.0
-        self._transition_guard_duration = 1.5  # seconds to ignore feedback after writes
         self._back_prop_task: asyncio.Task | None = None
 
     async def async_added_to_hass(self) -> None:
@@ -189,17 +186,6 @@ class CombinedLight(LightEntity):
             for zone_name in light_zones.keys()
         }
 
-    def _start_transition_guard(self) -> None:
-        """Temporarily ignore feedback while lights transition."""
-
-        if self._transition_guard_duration <= 0:
-            self._transition_guard_deadline = 0.0
-            return
-
-        self._transition_guard_deadline = (
-            time.monotonic() + self._transition_guard_duration
-        )
-
     def _update_target_brightness_from_children(
         self, *, manual_update: bool = False
     ) -> None:
@@ -211,10 +197,6 @@ class CombinedLight(LightEntity):
         # Skip updates while we are in the middle of applying our own changes.
         if self._manual_detector._updating_lights and not manual_update:
             _LOGGER.debug("Skipping sync while integration is updating lights")
-            return
-
-        if time.monotonic() < self._transition_guard_deadline:
-            _LOGGER.debug("Skipping sync during transition guard window")
             return
 
         zone_brightness = self._zone_manager.get_zone_brightness_dict(self.hass)
@@ -342,7 +324,6 @@ class CombinedLight(LightEntity):
     ) -> None:
         """Control all light zones based on calculated brightness values."""
         # Set updating flag to prevent feedback loops
-        self._start_transition_guard()
         self._manual_detector.set_updating_flag(True)
 
         try:
@@ -416,7 +397,6 @@ class CombinedLight(LightEntity):
 
         if all_lights:
             # Set updating flag to prevent feedback loops
-            self._start_transition_guard()
             self._manual_detector.set_updating_flag(True)
             try:
                 expected_states = await self._light_controller.turn_off_lights(

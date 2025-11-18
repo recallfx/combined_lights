@@ -471,55 +471,40 @@ class ManualChangeDetector:
             and event.context
             and event.context.id != self._integration_context.id
         )
-        brightness_mismatch = False
-        matched_expected = False
 
-        # Secondary check: does this match our expected state?
+        # Check if we have an expectation for this entity
         if expected_brightness is not None:
-            actual_brightness = (
-                new_state.attributes.get("brightness") if new_state else None
-            )
-
             # Handle "off" state specially
             if new_state and new_state.state == "off" and expected_brightness == 0:
-                # Remove from expected states and consider this our change
                 del self._expected_states[entity_id]
                 return False, "expected_off_state"
 
             # Check brightness match within tolerance
             if actual_brightness is not None:
-                if (
-                    abs(actual_brightness - expected_brightness)
-                    <= self._brightness_tolerance
-                ):
-                    # Remove from expected states and consider this our change
+                brightness_diff = abs(actual_brightness - expected_brightness)
+                if brightness_diff <= self._brightness_tolerance:
+                    # Matches expectation
                     del self._expected_states[entity_id]
-                    matched_expected = True
+                    return False, "expected_brightness_match"
                 else:
-                    brightness_mismatch = True
+                    # Brightness doesn't match - this is manual
+                    del self._expected_states[entity_id]
+                    return True, "brightness_mismatch"
             else:
-                brightness_mismatch = True
-
-        if self._updating_lights and not context_is_external:
-            if brightness_mismatch:
-                self._expected_states.pop(entity_id, None)
+                # No brightness attribute but we expected one
+                del self._expected_states[entity_id]
                 return True, "brightness_mismatch"
-            if matched_expected:
-                return False, "expected_brightness_match"
+
+        # No expectation set - check if we're currently updating
+        if self._updating_lights and not context_is_external:
+            # Integration is updating but no expectation was tracked
             return False, "integration_updating"
 
-        if brightness_mismatch:
-            self._expected_states.pop(entity_id, None)
-            return True, "brightness_mismatch"
-
-        if matched_expected:
-            return False, "expected_brightness_match"
-
-        # Tertiary check: context-based detection
+        # Check context
         if context_is_external:
             return True, "external_context"
 
-        # If we have no specific expectation for this light, it's likely a manual change
+        # No expectation and not our context - likely manual
         return True, "no_expectation"
 
     def cleanup_expected_state(self, entity_id: str) -> None:
