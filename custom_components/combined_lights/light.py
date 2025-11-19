@@ -127,10 +127,12 @@ class CombinedLight(LightEntity):
                     },
                 )
 
-            # Update target brightness based on child light changes
-            self._update_target_brightness_from_children(
-                manual_update=is_manual, changed_entity_id=entity_id if is_manual else None
-            )
+                # Update target brightness based on child light changes
+                # Only update for manual changes - integration-initiated changes already have correct target
+                self._update_target_brightness_from_children(
+                    manual_update=True, changed_entity_id=entity_id
+                )
+            
             self.async_schedule_update_ha_state()
 
         self._remove_listener = self.hass.bus.async_listen(
