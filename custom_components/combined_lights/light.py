@@ -91,7 +91,8 @@ class CombinedLight(LightEntity):
         self._light_controller = LightController(self.hass)
 
         # Initialize target brightness based on current state
-        if self.is_on and not self._target_brightness_initialized:
+        # Always attempt sync, even if lights appear off (handles KNX/slow integration startup delay)
+        if not self._target_brightness_initialized:
             self._sync_target_brightness_from_lights()
             self._target_brightness_initialized = True
 
