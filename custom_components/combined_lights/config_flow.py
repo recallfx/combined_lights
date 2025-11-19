@@ -34,6 +34,7 @@ from .const import (
     DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
     DOMAIN,
 )
+from .helpers import ConfigValidator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -261,10 +262,24 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Merge advanced configuration with defaults using utility function
             config_data = merge_config_with_defaults(self._config_data, user_input)
 
-            # Create the config entry
-            return self.async_create_entry(
-                title=self._config_data[CONF_NAME], data=config_data
-            )
+            # Validate configuration
+            if not ConfigValidator.validate_breakpoints(config_data[CONF_BREAKPOINTS]):
+                errors["base"] = "invalid_breakpoints"
+            elif not all(
+                ConfigValidator.validate_brightness_ranges(config_data[key])
+                for key in [
+                    CONF_STAGE_1_BRIGHTNESS_RANGES,
+                    CONF_STAGE_2_BRIGHTNESS_RANGES,
+                    CONF_STAGE_3_BRIGHTNESS_RANGES,
+                    CONF_STAGE_4_BRIGHTNESS_RANGES,
+                ]
+            ):
+                errors["base"] = "invalid_brightness_ranges"
+            else:
+                # Create the config entry
+                return self.async_create_entry(
+                    title=self._config_data[CONF_NAME], data=config_data
+                )
 
         # Use utility function to create advanced schema
         data_schema = create_advanced_schema()
@@ -338,12 +353,26 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Merge advanced configuration with current config data using utility function
             updated_config = merge_config_with_defaults(self._config_data, user_input)
 
-            # Update the config entry
-            return self.async_update_reload_and_abort(
-                config_entry,
-                data_updates=updated_config,
-                reason="reconfigure_successful",
-            )
+            # Validate configuration
+            if not ConfigValidator.validate_breakpoints(updated_config[CONF_BREAKPOINTS]):
+                errors["base"] = "invalid_breakpoints"
+            elif not all(
+                ConfigValidator.validate_brightness_ranges(updated_config[key])
+                for key in [
+                    CONF_STAGE_1_BRIGHTNESS_RANGES,
+                    CONF_STAGE_2_BRIGHTNESS_RANGES,
+                    CONF_STAGE_3_BRIGHTNESS_RANGES,
+                    CONF_STAGE_4_BRIGHTNESS_RANGES,
+                ]
+            ):
+                errors["base"] = "invalid_brightness_ranges"
+            else:
+                # Update the config entry
+                return self.async_update_reload_and_abort(
+                    config_entry,
+                    data_updates=updated_config,
+                    reason="reconfigure_successful",
+                )
 
         # Use utility function to create advanced schema with current values as defaults
         data_schema = create_advanced_schema(config_entry.data)
