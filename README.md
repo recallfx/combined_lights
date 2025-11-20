@@ -2,6 +2,12 @@
 
 A Home Assistant custom component that creates a single unified light entity that intelligently controls multiple light zones based on brightness stages. Perfect for creating sophisticated lighting scenes that gradually expand throughout your home as you increase the brightness.
 
+### Interactive Visualizer
+
+Want to see exactly how your lights will behave? Check out the [Interactive Visualizer](https://recallfx.github.io/ha-combined-lights/) to experiment with different curves and see how the stages activate across the brightness range.
+
+![Combined Lights Configuration](infographic/combined-lights-config.png)
+
 ## Overview
 
 Combined Lights transforms your collection of individual lights into a cohesive lighting system. Set one brightness level, and watch as different zones of lights activate and adjust their brightness based on your configured stages and ranges.
