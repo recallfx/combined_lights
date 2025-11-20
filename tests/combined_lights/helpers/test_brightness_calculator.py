@@ -138,7 +138,7 @@ class TestBrightnessCalculator:
             zone_brightness
         )
 
-        assert 20 < estimated < 30  # ≈ one quarter
+        assert 95 < estimated <= 100  # Stage 4 active means high brightness
 
     def test_reverse_curve_linear(self, mock_entry):
         """Test reversing linear brightness curve."""

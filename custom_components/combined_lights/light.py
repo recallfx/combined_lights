@@ -24,19 +24,6 @@ from .helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-# Utility functions for backward compatibility
-def get_config_value(entry: ConfigEntry, key: str, default: Any) -> Any:
-    """Get configuration value with default fallback."""
-    return entry.data.get(key, default)
-
-
-def get_light_zones(entry: ConfigEntry) -> dict[str, list[str]]:
-    """Get all light zones from configuration."""
-    zone_manager = ZoneManager(entry)
-    return zone_manager.get_light_zones()
-
-
-
 
 
 async def async_setup_entry(
@@ -55,7 +42,7 @@ class CombinedLight(LightEntity):
     def __init__(self, entry: ConfigEntry) -> None:
         """Initialize the Combined Light."""
         self._entry = entry
-        self._attr_name = get_config_value(entry, "name", "Combined Lights")
+        self._attr_name = entry.data.get("name", "Combined Lights")
         self._attr_unique_id = f"{entry.entry_id}_combined_light"
         self._attr_is_on = False
         self._attr_brightness = 255
@@ -74,8 +61,8 @@ class CombinedLight(LightEntity):
         self._remove_listener = None
         self._target_brightness = 255
         self._target_brightness_initialized = False
-        self._back_propagation_enabled = get_config_value(
-            entry, CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
+        self._back_propagation_enabled = entry.data.get(
+            CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
         )
         self._back_prop_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()

@@ -32,7 +32,6 @@ from .const import (
     DEFAULT_STAGE_4_CURVE,
     DOMAIN,
 )
-from .helpers import ConfigValidator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,28 +122,6 @@ def create_curve_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def create_advanced_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
-    """Create advanced configuration schema for breakpoints."""
-    defaults = defaults or {}
-
-    # Format breakpoints as comma-separated string for easier editing
-    default_breakpoints = defaults.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
-    if isinstance(default_breakpoints, list):
-        default_breakpoints_str = ", ".join(map(str, default_breakpoints))
-    else:
-        default_breakpoints_str = str(default_breakpoints)
-
-    return vol.Schema(
-        {
-            vol.Required(
-                "breakpoints_str",
-                default=default_breakpoints_str,
-                description="Comma-separated list of 3 breakpoints (e.g. 30, 60, 85)",
-            ): selector.TextSelector(),
-        }
-    )
-
-
 class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Combined Lights."""
 
@@ -190,8 +167,14 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Store curve configuration
             self._config_data.update(user_input)
 
-            # Proceed to advanced configuration (breakpoints)
-            return await self.async_step_advanced()
+            # Ensure default breakpoints are set
+            if CONF_BREAKPOINTS not in self._config_data:
+                self._config_data[CONF_BREAKPOINTS] = DEFAULT_BREAKPOINTS
+
+            # Create the config entry
+            return self.async_create_entry(
+                title=self._config_data[CONF_NAME], data=self._config_data
+            )
 
         # Use utility function to create schema
         data_schema = create_curve_schema()
@@ -202,45 +185,6 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "description": "Select brightness response curves for each stage. Linear is standard, Quadratic/Cubic give more precision at low brightness."
-            },
-        )
-
-    async def async_step_advanced(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Handle advanced configuration step (breakpoints)."""
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            try:
-                # Parse breakpoints string
-                breakpoints_str = user_input.get("breakpoints_str", "")
-                breakpoints = [
-                    int(x.strip()) for x in breakpoints_str.split(",") if x.strip()
-                ]
-
-                if not ConfigValidator.validate_breakpoints(breakpoints):
-                    errors["base"] = "invalid_breakpoints"
-                else:
-                    # Add breakpoints to config data
-                    self._config_data[CONF_BREAKPOINTS] = breakpoints
-
-                    # Create the config entry
-                    return self.async_create_entry(
-                        title=self._config_data[CONF_NAME], data=self._config_data
-                    )
-            except ValueError:
-                errors["base"] = "invalid_breakpoints"
-
-        # Use utility function to create advanced schema
-        data_schema = create_advanced_schema()
-
-        return self.async_show_form(
-            step_id="advanced",
-            data_schema=data_schema,
-            errors=errors,
-            description_placeholders={
-                "description": "Advanced: Configure breakpoints where stages activate. Default is 30, 60, 85."
             },
         )
 
@@ -292,8 +236,16 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Update config data
             self._config_data.update(user_input)
 
-            # Proceed to advanced configuration
-            return await self.async_step_reconfigure_advanced()
+            # Ensure default breakpoints are set if missing
+            if CONF_BREAKPOINTS not in self._config_data:
+                self._config_data[CONF_BREAKPOINTS] = DEFAULT_BREAKPOINTS
+
+            # Update the config entry
+            return self.async_update_reload_and_abort(
+                config_entry,
+                data_updates=self._config_data,
+                reason="reconfigure_successful",
+            )
 
         # Use utility function to create schema with current values as defaults
         data_schema = create_curve_schema(config_entry.data)
@@ -304,52 +256,5 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "description": "Update brightness response curves for each stage."
-            },
-        )
-
-    async def async_step_reconfigure_advanced(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Handle advanced reconfiguration step."""
-        errors: dict[str, str] = {}
-
-        config_entry = self.hass.config_entries.async_get_entry(
-            self.context["entry_id"]
-        )
-        if config_entry is None:
-            return self.async_abort(reason="entry_not_found")
-
-        if user_input is not None:
-            try:
-                # Parse breakpoints string
-                breakpoints_str = user_input.get("breakpoints_str", "")
-                breakpoints = [
-                    int(x.strip()) for x in breakpoints_str.split(",") if x.strip()
-                ]
-
-                if not ConfigValidator.validate_breakpoints(breakpoints):
-                    errors["base"] = "invalid_breakpoints"
-                else:
-                    # Update config data
-                    self._config_data[CONF_BREAKPOINTS] = breakpoints
-
-                    # Update the config entry
-                    return self.async_update_reload_and_abort(
-                        config_entry,
-                        data_updates=self._config_data,
-                        reason="reconfigure_successful",
-                    )
-            except ValueError:
-                errors["base"] = "invalid_breakpoints"
-
-        # Use utility function to create advanced schema with current values as defaults
-        data_schema = create_advanced_schema(config_entry.data)
-
-        return self.async_show_form(
-            step_id="reconfigure_advanced",
-            data_schema=data_schema,
-            errors=errors,
-            description_placeholders={
-                "description": "Advanced: Update breakpoints where stages activate."
             },
         )

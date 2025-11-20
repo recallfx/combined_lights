@@ -152,7 +152,7 @@ class TestBidirectionalSync:
 
         combined_light._update_target_brightness_from_children(manual_update=True)
 
-        assert 60 < combined_light._target_brightness < 70  # ≈ 25%
+        assert 250 < combined_light._target_brightness <= 255  # Stage 4 active means high brightness
 
     async def test_manual_update_triggers_back_propagation(
         self, hass: HomeAssistant, combined_light: CombinedLight

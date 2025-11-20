@@ -59,8 +59,8 @@ This bidirectional sync ensures your lighting state is always accurate, whether 
 **Behavior:**
 - **0-30%**: Only LED strip is on, ramping up gently.
 - **30-60%**: Reading lamp turns on and brightens. LED strip continues to brighten.
-- **60-85%**: Ceiling light turns on.
-- **85-100%**: Corner spot turns on for maximum brightness.
+- **60-90%**: Ceiling light turns on.
+- **90-100%**: Corner spot turns on for maximum brightness.
 
 ## Installation
 
@@ -90,19 +90,17 @@ This bidirectional sync ensures your lighting state is always accurate, whether 
      - **Linear**: Standard even response
      - **Quadratic**: More precision at low brightness (recommended for Stage 1)
      - **Cubic**: Maximum precision at low brightness
-5. **Step 3: Advanced (Optional)**
-   - Customize breakpoints (defaults: 30, 60, 85)
 
 ### Intelligent Defaults
 
 The integration now uses intelligent defaults to handle brightness progression automatically:
 
 - **Progressive Zones**: Stages activate sequentially as you increase brightness.
-- **Breakpoints**: Defaults are `[30, 60, 85]`.
+- **Breakpoints**: Defaults are `[30, 60, 90]`.
   - **Stage 1**: Active from 1% (Always on)
   - **Stage 2**: Activates at 30%
   - **Stage 3**: Activates at 60%
-  - **Stage 4**: Activates at 85% (High brightness boost)
+  - **Stage 4**: Activates at 90% (High brightness boost)
 
 ### Brightness Curves
 

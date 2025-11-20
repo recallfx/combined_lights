@@ -77,20 +77,9 @@ class TestCombinedLightsConfigFlow:
             },
         )
 
-        assert result3["type"] is FlowResultType.FORM
-        assert result3["step_id"] == "advanced"
-
-        # Complete advanced step with defaults
-        result4 = await hass.config_entries.flow.async_configure(
-            result3["flow_id"],
-            {
-                "breakpoints_str": "30, 60, 85"
-            },
-        )
-
-        assert result4["type"] is FlowResultType.CREATE_ENTRY
-        assert result4["title"] == "Test Combined Lights"
-        assert result4["data"] == {
+        assert result3["type"] is FlowResultType.CREATE_ENTRY
+        assert result3["title"] == "Test Combined Lights"
+        assert result3["data"] == {
             CONF_NAME: "Test Combined Lights",
             CONF_STAGE_1_LIGHTS: ["light.stage1"],
             CONF_STAGE_2_LIGHTS: [],
@@ -105,7 +94,7 @@ class TestCombinedLightsConfigFlow:
         }
 
     async def test_full_flow_custom_curves_and_advanced(self, hass: HomeAssistant) -> None:
-        """Test full config flow with custom curves and advanced options."""
+        """Test full config flow with custom curves."""
         # Start with user step
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -134,20 +123,9 @@ class TestCombinedLightsConfigFlow:
             },
         )
         
-        assert result3["type"] is FlowResultType.FORM
-        assert result3["step_id"] == "advanced"
-
-        # Complete advanced step
-        result4 = await hass.config_entries.flow.async_configure(
-            result3["flow_id"],
-            {
-                "breakpoints_str": "20, 50, 80"
-            },
-        )
-        
-        assert result4["type"] is FlowResultType.CREATE_ENTRY
-        assert result4["data"][CONF_STAGE_1_CURVE] == CURVE_QUADRATIC
-        assert result4["data"][CONF_BREAKPOINTS] == [20, 50, 80]
+        assert result3["type"] is FlowResultType.CREATE_ENTRY
+        assert result3["data"][CONF_STAGE_1_CURVE] == CURVE_QUADRATIC
+        assert result3["data"][CONF_BREAKPOINTS] == DEFAULT_BREAKPOINTS
 
     async def test_reconfigure_flow(self, hass: HomeAssistant) -> None:
         """Test the reconfigure flow."""
@@ -218,19 +196,8 @@ class TestCombinedLightsConfigFlow:
             },
         )
         
-        assert result3["type"] is FlowResultType.FORM
-        assert result3["step_id"] == "reconfigure_advanced"
-
-        # Complete advanced step
-        result4 = await hass.config_entries.flow.async_configure(
-            result3["flow_id"],
-            {
-                "breakpoints_str": "30, 60, 85"
-            },
-        )
-        
-        assert result4["type"] is FlowResultType.ABORT
-        assert result4["reason"] == "reconfigure_successful"
+        assert result3["type"] is FlowResultType.ABORT
+        assert result3["reason"] == "reconfigure_successful"
         assert config_entry.data[CONF_STAGE_1_CURVE] == CURVE_QUADRATIC
 
 

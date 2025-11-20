@@ -21,7 +21,7 @@ CONF_STAGE_3_CURVE = "stage_3_curve"
 CONF_STAGE_4_CURVE = "stage_4_curve"
 
 # Advanced configuration keys
-CONF_BREAKPOINTS = "breakpoints"  # [30, 60, 85] - slider positions where zones activate
+CONF_BREAKPOINTS = "breakpoints"  # [30, 60, 90] - slider positions where zones activate
 
 # Optional behavior switches
 CONF_ENABLE_BACK_PROPAGATION = "enable_back_propagation"
@@ -36,7 +36,7 @@ CURVE_CUBIC = "cubic"  # Even more precision at low brightness
 DEFAULT_BRIGHTNESS_CURVE = CURVE_LINEAR
 
 # Default configuration
-DEFAULT_BREAKPOINTS = [30, 60, 85]  # 1-30%, 31-60%, 61-85%, 86-100%
+DEFAULT_BREAKPOINTS = [30, 60, 90]  # 1-30%, 31-60%, 61-90%, 91-100%
 
 # Default curves for each stage
 DEFAULT_STAGE_1_CURVE = CURVE_LINEAR

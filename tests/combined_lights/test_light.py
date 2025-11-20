@@ -15,37 +15,9 @@ from custom_components.combined_lights.const import (
 from custom_components.combined_lights.light import (
     CombinedLight,
     async_setup_entry,
-    get_config_value,
-    get_light_zones,
 )
 
 
-class TestLightPlatformUtilities:
-    """Test utility functions for the light platform."""
-
-    def test_get_config_value(self, mock_config_entry_advanced) -> None:
-        """Test getting configuration value with default fallback."""
-        # Test existing value
-        result = get_config_value(mock_config_entry_advanced, CONF_NAME, "Default Name")
-        assert result == "Advanced Test Combined Lights"
-
-        # Test default fallback
-        result = get_config_value(
-            mock_config_entry_advanced, "non_existent", "Default Value"
-        )
-        assert result == "Default Value"
-
-    def test_get_light_zones(self, mock_config_entry_advanced) -> None:
-        """Test getting light zones from configuration."""
-        zones = get_light_zones(mock_config_entry_advanced)
-
-        expected = {
-            "stage_1": ["light.stage1_1", "light.stage1_2"],
-            "stage_2": ["light.stage2_1"],
-            "stage_3": [],
-            "stage_4": ["light.stage4_1"],
-        }
-        assert zones == expected
 
 
 class TestAsyncSetupEntry:
