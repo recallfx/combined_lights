@@ -13,25 +13,23 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BREAKPOINTS,
-    CONF_BRIGHTNESS_CURVE,
     CONF_ENABLE_BACK_PROPAGATION,
-    CONF_STAGE_1_BRIGHTNESS_RANGES,
+    CONF_STAGE_1_CURVE,
     CONF_STAGE_1_LIGHTS,
-    CONF_STAGE_2_BRIGHTNESS_RANGES,
+    CONF_STAGE_2_CURVE,
     CONF_STAGE_2_LIGHTS,
-    CONF_STAGE_3_BRIGHTNESS_RANGES,
+    CONF_STAGE_3_CURVE,
     CONF_STAGE_3_LIGHTS,
-    CONF_STAGE_4_BRIGHTNESS_RANGES,
+    CONF_STAGE_4_CURVE,
     CONF_STAGE_4_LIGHTS,
     CURVE_CUBIC,
     CURVE_LINEAR,
     CURVE_QUADRATIC,
     DEFAULT_BREAKPOINTS,
-    DEFAULT_BRIGHTNESS_CURVE,
-    DEFAULT_STAGE_1_BRIGHTNESS_RANGES,
-    DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
-    DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
-    DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
+    DEFAULT_STAGE_1_CURVE,
+    DEFAULT_STAGE_2_CURVE,
+    DEFAULT_STAGE_3_CURVE,
+    DEFAULT_STAGE_4_CURVE,
     DOMAIN,
 )
 from .helpers import ConfigValidator
@@ -44,6 +42,25 @@ def create_light_entity_selector() -> selector.EntitySelector:
     """Create light entity selector for reuse."""
     return selector.EntitySelector(
         selector.EntitySelectorConfig(domain="light", multiple=True)
+    )
+
+
+def create_curve_selector() -> selector.SelectSelector:
+    """Create brightness curve selector for reuse."""
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                {"value": CURVE_LINEAR, "label": "Linear (even response)"},
+                {
+                    "value": CURVE_QUADRATIC,
+                    "label": "Quadratic (more precision at low brightness)",
+                },
+                {
+                    "value": CURVE_CUBIC,
+                    "label": "Cubic (maximum precision at low brightness)",
+                },
+            ]
+        )
     )
 
 
@@ -80,141 +97,52 @@ def create_basic_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def create_curve_selector() -> selector.SelectSelector:
-    """Create brightness curve selector for reuse."""
-    return selector.SelectSelector(
-        selector.SelectSelectorConfig(
-            options=[
-                {"value": CURVE_LINEAR, "label": "Linear (even response)"},
-                {
-                    "value": CURVE_QUADRATIC,
-                    "label": "Quadratic (more precision at low brightness)",
-                },
-                {
-                    "value": CURVE_CUBIC,
-                    "label": "Cubic (maximum precision at low brightness)",
-                },
-            ]
-        )
-    )
-
-
-def create_advanced_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
-    """Create advanced configuration schema using YAML editor."""
+def create_curve_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    """Create brightness curve configuration schema."""
     defaults = defaults or {}
-
-    # Create the default YAML configuration with simplified range format
-    default_config = {
-        CONF_BREAKPOINTS: defaults.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
-        CONF_BRIGHTNESS_CURVE: defaults.get(
-            CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE
-        ),
-        CONF_STAGE_1_BRIGHTNESS_RANGES: format_ranges_for_yaml(
-            defaults.get(
-                CONF_STAGE_1_BRIGHTNESS_RANGES, DEFAULT_STAGE_1_BRIGHTNESS_RANGES
-            )
-        ),
-        CONF_STAGE_2_BRIGHTNESS_RANGES: format_ranges_for_yaml(
-            defaults.get(
-                CONF_STAGE_2_BRIGHTNESS_RANGES, DEFAULT_STAGE_2_BRIGHTNESS_RANGES
-            )
-        ),
-        CONF_STAGE_3_BRIGHTNESS_RANGES: format_ranges_for_yaml(
-            defaults.get(
-                CONF_STAGE_3_BRIGHTNESS_RANGES, DEFAULT_STAGE_3_BRIGHTNESS_RANGES
-            )
-        ),
-        CONF_STAGE_4_BRIGHTNESS_RANGES: format_ranges_for_yaml(
-            defaults.get(
-                CONF_STAGE_4_BRIGHTNESS_RANGES, DEFAULT_STAGE_4_BRIGHTNESS_RANGES
-            )
-        ),
-    }
 
     return vol.Schema(
         {
             vol.Required(
-                "advanced_config",
-                default=default_config,
-                description="Advanced configuration in YAML format",
-            ): selector.ObjectSelector(),
+                CONF_STAGE_1_CURVE,
+                default=defaults.get(CONF_STAGE_1_CURVE, DEFAULT_STAGE_1_CURVE),
+            ): create_curve_selector(),
+            vol.Required(
+                CONF_STAGE_2_CURVE,
+                default=defaults.get(CONF_STAGE_2_CURVE, DEFAULT_STAGE_2_CURVE),
+            ): create_curve_selector(),
+            vol.Required(
+                CONF_STAGE_3_CURVE,
+                default=defaults.get(CONF_STAGE_3_CURVE, DEFAULT_STAGE_3_CURVE),
+            ): create_curve_selector(),
+            vol.Required(
+                CONF_STAGE_4_CURVE,
+                default=defaults.get(CONF_STAGE_4_CURVE, DEFAULT_STAGE_4_CURVE),
+            ): create_curve_selector(),
         }
     )
 
 
-def merge_config_with_defaults(
-    config_data: dict[str, Any], user_input: dict[str, Any]
-) -> dict[str, Any]:
-    """Merge configuration data with defaults for missing values."""
-    # Extract the advanced config from the YAML input
-    advanced_config = user_input.get("advanced_config", {})
+def create_advanced_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    """Create advanced configuration schema for breakpoints."""
+    defaults = defaults or {}
 
-    # Parse brightness ranges from simplified format
-    stage_1_ranges = parse_ranges_from_yaml(
-        advanced_config.get(
-            CONF_STAGE_1_BRIGHTNESS_RANGES,
-            format_ranges_for_yaml(DEFAULT_STAGE_1_BRIGHTNESS_RANGES),
-        )
+    # Format breakpoints as comma-separated string for easier editing
+    default_breakpoints = defaults.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
+    if isinstance(default_breakpoints, list):
+        default_breakpoints_str = ", ".join(map(str, default_breakpoints))
+    else:
+        default_breakpoints_str = str(default_breakpoints)
+
+    return vol.Schema(
+        {
+            vol.Required(
+                "breakpoints_str",
+                default=default_breakpoints_str,
+                description="Comma-separated list of 3 breakpoints (e.g. 30, 60, 85)",
+            ): selector.TextSelector(),
+        }
     )
-    stage_2_ranges = parse_ranges_from_yaml(
-        advanced_config.get(
-            CONF_STAGE_2_BRIGHTNESS_RANGES,
-            format_ranges_for_yaml(DEFAULT_STAGE_2_BRIGHTNESS_RANGES),
-        )
-    )
-    stage_3_ranges = parse_ranges_from_yaml(
-        advanced_config.get(
-            CONF_STAGE_3_BRIGHTNESS_RANGES,
-            format_ranges_for_yaml(DEFAULT_STAGE_3_BRIGHTNESS_RANGES),
-        )
-    )
-    stage_4_ranges = parse_ranges_from_yaml(
-        advanced_config.get(
-            CONF_STAGE_4_BRIGHTNESS_RANGES,
-            format_ranges_for_yaml(DEFAULT_STAGE_4_BRIGHTNESS_RANGES),
-        )
-    )
-
-    return {
-        **config_data,
-        CONF_BREAKPOINTS: advanced_config.get(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS),
-        CONF_BRIGHTNESS_CURVE: advanced_config.get(
-            CONF_BRIGHTNESS_CURVE, DEFAULT_BRIGHTNESS_CURVE
-        ),
-        CONF_STAGE_1_BRIGHTNESS_RANGES: stage_1_ranges,
-        CONF_STAGE_2_BRIGHTNESS_RANGES: stage_2_ranges,
-        CONF_STAGE_3_BRIGHTNESS_RANGES: stage_3_ranges,
-        CONF_STAGE_4_BRIGHTNESS_RANGES: stage_4_ranges,
-    }
-
-
-def format_ranges_for_yaml(ranges: list[list[int]]) -> list[str]:
-    """Convert [[min, max], [min, max], ...] to ['min, max', 'min, max', ...] for better YAML display."""
-    return [f"{range_pair[0]}, {range_pair[1]}" for range_pair in ranges]
-
-
-def parse_ranges_from_yaml(
-    ranges_input: list[str] | list[list[int]],
-) -> list[list[int]]:
-    """Parse ranges from either 'min, max' strings or [[min, max]] format."""
-    if not ranges_input:
-        return []
-
-    result = []
-    for item in ranges_input:
-        if isinstance(item, str):
-            # Parse "min, max" format
-            parts = [int(x.strip()) for x in item.split(",")]
-            if len(parts) != 2:
-                raise ValueError(f"Invalid range format: {item}")
-            result.append(parts)
-        elif isinstance(item, list) and len(item) == 2:
-            # Already in [[min, max]] format
-            result.append([int(item[0]), int(item[1])])
-        else:
-            raise ValueError(f"Invalid range format: {item}")
-
-    return result
 
 
 class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -236,8 +164,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Store basic configuration
             self._config_data.update(user_input)
 
-            # Proceed to advanced configuration
-            return await self.async_step_advanced()
+            # Proceed to curve configuration
+            return await self.async_step_curves()
 
         # Use utility function to create schema
         data_schema = create_basic_schema()
@@ -248,38 +176,61 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=data_schema,
             errors=errors,
             description_placeholders={
-                "description": "Configure your light zones. Next step will allow customizing breakpoints and brightness ranges."
+                "description": "Configure your light zones. Next step will allow customizing brightness curves."
+            },
+        )
+
+    async def async_step_curves(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle brightness curve configuration step."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Store curve configuration
+            self._config_data.update(user_input)
+
+            # Proceed to advanced configuration (breakpoints)
+            return await self.async_step_advanced()
+
+        # Use utility function to create schema
+        data_schema = create_curve_schema()
+
+        return self.async_show_form(
+            step_id="curves",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "description": "Select brightness response curves for each stage. Linear is standard, Quadratic/Cubic give more precision at low brightness."
             },
         )
 
     async def async_step_advanced(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle advanced configuration step."""
+        """Handle advanced configuration step (breakpoints)."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Merge advanced configuration with defaults using utility function
-            config_data = merge_config_with_defaults(self._config_data, user_input)
-
-            # Validate configuration
-            if not ConfigValidator.validate_breakpoints(config_data[CONF_BREAKPOINTS]):
-                errors["base"] = "invalid_breakpoints"
-            elif not all(
-                ConfigValidator.validate_brightness_ranges(config_data[key])
-                for key in [
-                    CONF_STAGE_1_BRIGHTNESS_RANGES,
-                    CONF_STAGE_2_BRIGHTNESS_RANGES,
-                    CONF_STAGE_3_BRIGHTNESS_RANGES,
-                    CONF_STAGE_4_BRIGHTNESS_RANGES,
+            try:
+                # Parse breakpoints string
+                breakpoints_str = user_input.get("breakpoints_str", "")
+                breakpoints = [
+                    int(x.strip()) for x in breakpoints_str.split(",") if x.strip()
                 ]
-            ):
-                errors["base"] = "invalid_brightness_ranges"
-            else:
-                # Create the config entry
-                return self.async_create_entry(
-                    title=self._config_data[CONF_NAME], data=config_data
-                )
+
+                if not ConfigValidator.validate_breakpoints(breakpoints):
+                    errors["base"] = "invalid_breakpoints"
+                else:
+                    # Add breakpoints to config data
+                    self._config_data[CONF_BREAKPOINTS] = breakpoints
+
+                    # Create the config entry
+                    return self.async_create_entry(
+                        title=self._config_data[CONF_NAME], data=self._config_data
+                    )
+            except ValueError:
+                errors["base"] = "invalid_breakpoints"
 
         # Use utility function to create advanced schema
         data_schema = create_advanced_schema()
@@ -289,19 +240,7 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=data_schema,
             errors=errors,
             description_placeholders={
-                "description": (
-                    "Advanced: Configure breakpoints and brightness ranges using YAML.\n\n"
-                    "Example configuration:\n"
-                    "- breakpoints: [30, 60, 90] (creates stages 1-30%, 31-60%, 61-90%, 91-100%)\n"
-                    "- brightness_curve: linear (or quadratic, cubic)\n"
-                    "- brightness ranges: use simplified format like:\n"
-                    "  stage_1_brightness_ranges:\n"
-                    "    - '5, 20'   # Stage 1: min 5%, max 20%\n"
-                    "    - '10, 40'  # Stage 2: min 10%, max 40%\n"
-                    "    - '20, 70'  # Stage 3: min 20%, max 70%\n"
-                    "    - '50, 100' # Stage 4: min 50%, max 100%\n"
-                    "- Use '0, 0' to turn lights off in that stage"
-                )
+                "description": "Advanced: Configure breakpoints where stages activate. Default is 30, 60, 85."
             },
         )
 
@@ -322,8 +261,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             # Store basic configuration for reconfiguration
             self._config_data = {**config_entry.data, **user_input}
 
-            # Proceed to advanced configuration
-            return await self.async_step_reconfigure_advanced()
+            # Proceed to curve configuration
+            return await self.async_step_reconfigure_curves()
 
         # Use utility function to create schema with current values as defaults
         data_schema = create_basic_schema(config_entry.data)
@@ -333,7 +272,38 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=data_schema,
             errors=errors,
             description_placeholders={
-                "description": "Update your light zones configuration. Next step will allow customizing breakpoints and brightness ranges."
+                "description": "Update your light zones configuration. Next step will allow customizing brightness curves."
+            },
+        )
+
+    async def async_step_reconfigure_curves(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of curves."""
+        errors: dict[str, str] = {}
+
+        config_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        if config_entry is None:
+            return self.async_abort(reason="entry_not_found")
+
+        if user_input is not None:
+            # Update config data
+            self._config_data.update(user_input)
+
+            # Proceed to advanced configuration
+            return await self.async_step_reconfigure_advanced()
+
+        # Use utility function to create schema with current values as defaults
+        data_schema = create_curve_schema(config_entry.data)
+
+        return self.async_show_form(
+            step_id="reconfigure_curves",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "description": "Update brightness response curves for each stage."
             },
         )
 
@@ -350,29 +320,27 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
-            # Merge advanced configuration with current config data using utility function
-            updated_config = merge_config_with_defaults(self._config_data, user_input)
-
-            # Validate configuration
-            if not ConfigValidator.validate_breakpoints(updated_config[CONF_BREAKPOINTS]):
-                errors["base"] = "invalid_breakpoints"
-            elif not all(
-                ConfigValidator.validate_brightness_ranges(updated_config[key])
-                for key in [
-                    CONF_STAGE_1_BRIGHTNESS_RANGES,
-                    CONF_STAGE_2_BRIGHTNESS_RANGES,
-                    CONF_STAGE_3_BRIGHTNESS_RANGES,
-                    CONF_STAGE_4_BRIGHTNESS_RANGES,
+            try:
+                # Parse breakpoints string
+                breakpoints_str = user_input.get("breakpoints_str", "")
+                breakpoints = [
+                    int(x.strip()) for x in breakpoints_str.split(",") if x.strip()
                 ]
-            ):
-                errors["base"] = "invalid_brightness_ranges"
-            else:
-                # Update the config entry
-                return self.async_update_reload_and_abort(
-                    config_entry,
-                    data_updates=updated_config,
-                    reason="reconfigure_successful",
-                )
+
+                if not ConfigValidator.validate_breakpoints(breakpoints):
+                    errors["base"] = "invalid_breakpoints"
+                else:
+                    # Update config data
+                    self._config_data[CONF_BREAKPOINTS] = breakpoints
+
+                    # Update the config entry
+                    return self.async_update_reload_and_abort(
+                        config_entry,
+                        data_updates=self._config_data,
+                        reason="reconfigure_successful",
+                    )
+            except ValueError:
+                errors["base"] = "invalid_breakpoints"
 
         # Use utility function to create advanced schema with current values as defaults
         data_schema = create_advanced_schema(config_entry.data)
@@ -382,18 +350,6 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=data_schema,
             errors=errors,
             description_placeholders={
-                "description": (
-                    "Advanced: Update breakpoints and brightness ranges using YAML.\n\n"
-                    "Example configuration:\n"
-                    "- breakpoints: [30, 60, 90] (creates stages 1-30%, 31-60%, 61-90%, 91-100%)\n"
-                    "- brightness_curve: linear (or quadratic, cubic)\n"
-                    "- brightness ranges: use simplified format like:\n"
-                    "  stage_1_brightness_ranges:\n"
-                    "    - '5, 20'   # Stage 1: min 5%, max 20%\n"
-                    "    - '10, 40'  # Stage 2: min 10%, max 40%\n"
-                    "    - '20, 70'  # Stage 3: min 20%, max 70%\n"
-                    "    - '50, 100' # Stage 4: min 50%, max 100%\n"
-                    "- Use '0, 0' to turn lights off in that stage"
-                )
+                "description": "Advanced: Update breakpoints where stages activate."
             },
         )

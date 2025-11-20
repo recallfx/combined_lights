@@ -49,36 +49,18 @@ This bidirectional sync ensures your lighting state is always accurate, whether 
 
 ### Example Configuration
 
-```yaml
-# Breakpoints: [25, 50, 75]
-stage_1_lights:    # Always-on ambient lights
-  - light.bedside_lamp
-  - light.hallway_strip
-  
-stage_2_lights:    # Task lighting
-  - light.desk_lamp
-  - light.kitchen_under_cabinet
-  
-stage_3_lights:    # Room lighting
-  - light.living_room_ceiling
-  - light.bedroom_main
-  
-stage_4_lights:    # Full brightness/outdoor
-  - light.outdoor_floodlights
-  - light.garage_lights
+**Scenario: Living Room**
 
-# Brightness ranges for stage_1_lights:
-# Stage 1 (1-25%):   lights at 5-20%
-# Stage 2 (26-50%):  lights at 30-50% 
-# Stage 3 (51-75%):  lights at 60-80%
-# Stage 4 (76-100%): lights at 90-100%
-```
+- **Stage 1 (Ambient)**: `light.led_strip` (Quadratic Curve)
+- **Stage 2 (Task)**: `light.reading_lamp` (Linear Curve)
+- **Stage 3 (General)**: `light.ceiling_main` (Linear Curve)
+- **Stage 4 (Boost)**: `light.corner_spot` (Linear Curve)
 
-When you set the combined light to 40% brightness:
-- Stage 1 lights: On at 30-50% range
-- Stage 2 lights: On at calculated brightness
-- Stage 3 lights: Off (stage not reached)
-- Stage 4 lights: Off (stage not reached)
+**Behavior:**
+- **0-30%**: Only LED strip is on, ramping up gently.
+- **30-60%**: Reading lamp turns on and brightens. LED strip continues to brighten.
+- **60-85%**: Ceiling light turns on.
+- **85-100%**: Corner spot turns on for maximum brightness.
 
 ## Installation
 
@@ -97,50 +79,36 @@ When you set the combined light to 40% brightness:
 
 ## Configuration
 
-### Basic Setup
+### Simplified Setup
 
 1. Go to **Settings** > **Devices & Services**
 2. Click **Add Integration** and search for "Combined Lights"
-3. Configure your light zones:
-   - **Name**: Display name for your combined light entity
-   - **Stage 1 Lights**: Always-on ambient lights (optional)
-   - **Stage 2 Lights**: Secondary zone lights (optional)
-   - **Stage 3 Lights**: Main room lights (optional)  
-   - **Stage 4 Lights**: Full brightness/outdoor lights (optional)
+3. **Step 1: Assign Lights**
+   - Assign lights to each of the 4 stages (Stage 1 = Ambient, Stage 4 = Full Brightness)
+4. **Step 2: Select Curves**
+   - Choose a brightness curve for each stage:
+     - **Linear**: Standard even response
+     - **Quadratic**: More precision at low brightness (recommended for Stage 1)
+     - **Cubic**: Maximum precision at low brightness
+5. **Step 3: Advanced (Optional)**
+   - Customize breakpoints (defaults: 30, 60, 85)
 
-### Advanced Configuration
+### Intelligent Defaults
 
-The second step allows you to customize:
+The integration now uses intelligent defaults to handle brightness progression automatically:
 
-- **Breakpoints**: Where stages transition (default: [25, 50, 75])
-- **Brightness Curve**: Linear, quadratic, or cubic response
-- **Brightness Ranges**: Min/max brightness for each light zone in each stage
-
-#### Brightness Ranges Format
-
-Use the simplified format in the YAML editor:
-
-```yaml
-stage_1_brightness_ranges:
-  - "5, 20"    # Stage 1: 5-20% brightness
-  - "30, 50"   # Stage 2: 30-50% brightness  
-  - "60, 80"   # Stage 3: 60-80% brightness
-  - "90, 100"  # Stage 4: 90-100% brightness
-
-stage_2_brightness_ranges:
-  - "0, 0"     # Stage 1: off
-  - "10, 40"   # Stage 2: 10-40% brightness
-  - "50, 70"   # Stage 3: 50-70% brightness
-  - "80, 100"  # Stage 4: 80-100% brightness
-```
-
-Use `"0, 0"` to keep lights off during specific stages.
+- **Progressive Zones**: Stages activate sequentially as you increase brightness.
+- **Breakpoints**: Defaults are `[30, 60, 85]`.
+  - **Stage 1**: Active from 1% (Always on)
+  - **Stage 2**: Activates at 30%
+  - **Stage 3**: Activates at 60%
+  - **Stage 4**: Activates at 85% (High brightness boost)
 
 ### Brightness Curves
 
-- **Linear**: Even brightness distribution across the range
-- **Quadratic**: More precision at lower brightness levels
-- **Cubic**: Maximum precision at low brightness, good for fine ambient control
+- **Linear**: Even brightness distribution across the range. Good for standard bulbs.
+- **Quadratic**: Slower ramp-up at low levels. Great for LEDs that are too bright at 1%.
+- **Cubic**: Very slow ramp-up. Perfect for night lights or sensitive ambient strips.
 
 ## Understanding Bidirectional Sync
 

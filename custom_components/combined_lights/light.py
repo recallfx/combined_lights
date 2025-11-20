@@ -36,10 +36,7 @@ def get_light_zones(entry: ConfigEntry) -> dict[str, list[str]]:
     return zone_manager.get_light_zones()
 
 
-def get_brightness_ranges(entry: ConfigEntry) -> dict[str, list[list[int]]]:
-    """Get all brightness ranges from configuration."""
-    brightness_calc = BrightnessCalculator(entry)
-    return brightness_calc._get_brightness_ranges()
+
 
 
 async def async_setup_entry(

@@ -11,15 +11,10 @@ from custom_components.combined_lights.const import (
     CURVE_LINEAR,
     CURVE_QUADRATIC,
     DEFAULT_BREAKPOINTS,
-    DEFAULT_STAGE_1_BRIGHTNESS_RANGES,
-    DEFAULT_STAGE_2_BRIGHTNESS_RANGES,
-    DEFAULT_STAGE_3_BRIGHTNESS_RANGES,
-    DEFAULT_STAGE_4_BRIGHTNESS_RANGES,
 )
 from custom_components.combined_lights.light import (
     CombinedLight,
     async_setup_entry,
-    get_brightness_ranges,
     get_config_value,
     get_light_zones,
 )
@@ -51,24 +46,6 @@ class TestLightPlatformUtilities:
             "stage_4": ["light.stage4_1"],
         }
         assert zones == expected
-
-    def test_get_brightness_ranges(self, mock_config_entry_advanced) -> None:
-        """Test getting brightness ranges from configuration."""
-        ranges = get_brightness_ranges(mock_config_entry_advanced)
-
-        assert ranges["stage_1"] == [[10, 40], [50, 70], [80, 90], [95, 100]]
-        assert ranges["stage_2"] == [[0, 0], [20, 50], [60, 80], [85, 100]]
-        assert ranges["stage_3"] == [[0, 0], [0, 0], [30, 60], [70, 100]]
-        assert ranges["stage_4"] == [[0, 0], [0, 0], [0, 0], [40, 100]]
-
-    def test_get_brightness_ranges_with_defaults(self, mock_config_entry) -> None:
-        """Test getting brightness ranges with default values."""
-        ranges = get_brightness_ranges(mock_config_entry)
-
-        assert ranges["stage_1"] == DEFAULT_STAGE_1_BRIGHTNESS_RANGES
-        assert ranges["stage_2"] == DEFAULT_STAGE_2_BRIGHTNESS_RANGES
-        assert ranges["stage_3"] == DEFAULT_STAGE_3_BRIGHTNESS_RANGES
-        assert ranges["stage_4"] == DEFAULT_STAGE_4_BRIGHTNESS_RANGES
 
 
 class TestAsyncSetupEntry:
@@ -120,6 +97,7 @@ class TestCombinedLight:
 
         # Test each stage using the brightness calculator
         brightness_calc = combined_light._brightness_calc
+        # Breakpoints are [30, 60, 90] in advanced config
         assert brightness_calc.get_stage_from_brightness(10) == 0  # Stage 1
         assert brightness_calc.get_stage_from_brightness(30) == 0  # Stage 1
         assert brightness_calc.get_stage_from_brightness(35) == 1  # Stage 2
@@ -142,39 +120,52 @@ class TestCombinedLight:
     ) -> None:
         """Test quadratic brightness curve."""
         brightness_calc = combined_light._brightness_calc
-        # Quadratic curve should be different from linear for mid-range values
+        # Quadratic curve: y = x^2
         result = brightness_calc._apply_brightness_curve(0.5, CURVE_QUADRATIC)
-        assert result != 0.5  # Should be different from linear
-        assert 0.0 <= result <= 1.0  # Should be within valid range
+        assert result == 0.25
 
-    def test_calculate_zone_brightness_off_range(
+    def test_calculate_zone_brightness_stage_1(
         self, combined_light: CombinedLight
     ) -> None:
-        """Test zone brightness calculation for off range [0, 0]."""
+        """Test zone brightness calculation for Stage 1."""
         brightness_calc = combined_light._brightness_calc
-        # Zone should be off when range is [0, 0]
-        result = brightness_calc._calculate_zone_brightness_from_config(
-            50.0,  # overall_pct
-            1,  # stage
-            [[0, 0], [0, 0], [0, 0], [0, 0]],  # zone_ranges (all off)
-            DEFAULT_BREAKPOINTS,
-        )
-        assert result == 0.0
+        # Stage 1 is active from 0 to 100% overall brightness
+        # In advanced config, Stage 1 has Quadratic curve
+        
+        # At 0% overall, should be 0%
+        assert brightness_calc.calculate_zone_brightness(0, "stage_1") == 0.0
+        
+        # At 15% overall (halfway to 30% breakpoint), progress is 15/100 = 0.15
+        # Quadratic: 0.15^2 = 0.0225
+        # Brightness: 1 + 0.0225 * 99 = 3.2275
+        result = brightness_calc.calculate_zone_brightness(15, "stage_1")
+        assert abs(result - 3.2275) < 0.1
+        
+        # At 100% overall, should be 100%
+        assert brightness_calc.calculate_zone_brightness(100, "stage_1") == 100.0
 
-    def test_calculate_zone_brightness_active_range(
+    def test_calculate_zone_brightness_stage_2(
         self, combined_light: CombinedLight
     ) -> None:
-        """Test zone brightness calculation for active range."""
+        """Test zone brightness calculation for Stage 2."""
         brightness_calc = combined_light._brightness_calc
-        # Zone should have brightness when range is not [0, 0]
-        result = brightness_calc._calculate_zone_brightness_from_config(
-            50.0,  # overall_pct (exactly at breakpoint[1])
-            1,  # stage 2
-            [[0, 0], [10, 50], [60, 80], [90, 100]],  # zone_ranges
-            DEFAULT_BREAKPOINTS,  # [25, 50, 75]
-        )
-        # Should be maximum of stage 2 range since we're at the upper boundary
-        assert result == 50.0
+        # Stage 2 activates at 30% (breakpoint 1)
+        # Curve is default (Linear)
+        
+        # Below 30%, should be 0
+        assert brightness_calc.calculate_zone_brightness(20, "stage_2") == 0.0
+        
+        # At 30%, should be 0 (just activating)
+        assert brightness_calc.calculate_zone_brightness(30, "stage_2") == 0.0
+        
+        # At 65% (midway between 30 and 100 is 65), progress = (65-30)/(100-30) = 35/70 = 0.5
+        # Linear: 0.5
+        # Brightness: 1 + 0.5 * 99 = 50.5
+        result = brightness_calc.calculate_zone_brightness(65, "stage_2")
+        assert abs(result - 50.5) < 0.1
+        
+        # At 100%, should be 100%
+        assert brightness_calc.calculate_zone_brightness(100, "stage_2") == 100.0
 
     def test_get_all_controlled_lights(self, combined_light: CombinedLight) -> None:
         """Test getting all controlled light entity IDs."""
