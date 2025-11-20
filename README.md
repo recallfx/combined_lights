@@ -331,6 +331,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Version History
 
+- **2.7.0**: Added interactive visualizer, new brightness curves (Square, Cube), and documentation improvements
+- **2.6.0**: Simplified configuration by removing advanced breakpoint flow and migration
+- **2.5.0**: Removed explicit brightness range configuration in favor of intelligent defaults
+- **2.4.0**: Major refactor with new helper modules, improved manual change detection, configurable back-propagation, and config entry reload support
 - **2.2.0**: Added bidirectional brightness synchronization - wall switches now update combined light brightness
 - **2.1.0**: Zone-based configuration and advanced brightness control
 - **2.0.0**: Major rewrite with improved architecture and config flow
