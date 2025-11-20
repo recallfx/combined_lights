@@ -93,7 +93,9 @@ class TestInitialization:
             return original_sync()
 
         with patch.object(
-            combined_light, "_sync_target_brightness_from_lights", side_effect=counting_sync
+            combined_light,
+            "_sync_target_brightness_from_lights",
+            side_effect=counting_sync,
         ):
             # First call to async_added_to_hass
             await combined_light.async_added_to_hass()

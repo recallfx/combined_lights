@@ -41,7 +41,7 @@ DEFAULT_BRIGHTNESS_CURVE = CURVE_LINEAR
 # Note: Breakpoints are intentionally fixed and not exposed in the config flow.
 # They define the activation points for each progressive stage:
 #   - Stage 1: Always active (0%)
-#   - Stage 2: Activates at 30%  
+#   - Stage 2: Activates at 30%
 #   - Stage 3: Activates at 60%
 #   - Stage 4: Activates at 90%
 DEFAULT_BREAKPOINTS = [30, 60, 90]  # Fixed progressive activation points

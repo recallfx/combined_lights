@@ -152,7 +152,9 @@ class TestBidirectionalSync:
 
         combined_light._update_target_brightness_from_children(manual_update=True)
 
-        assert 250 < combined_light._target_brightness <= 255  # Stage 4 active means high brightness
+        assert (
+            250 < combined_light._target_brightness <= 255
+        )  # Stage 4 active means high brightness
 
     async def test_manual_update_triggers_back_propagation(
         self, hass: HomeAssistant, combined_light: CombinedLight
@@ -175,12 +177,8 @@ class TestBidirectionalSync:
         combined_light.hass = hass
         combined_light._back_propagation_enabled = True
         combined_light._light_controller = MagicMock()
-        combined_light._light_controller.turn_on_lights = MagicMock(
-            return_value={}
-        )
-        combined_light._light_controller.turn_off_lights = MagicMock(
-            return_value={}
-        )
+        combined_light._light_controller.turn_on_lights = MagicMock(return_value={})
+        combined_light._light_controller.turn_off_lights = MagicMock(return_value={})
 
         # Simulate manual change to stage1_1
         changed_entity = "light.stage1_1"

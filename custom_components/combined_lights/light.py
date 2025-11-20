@@ -24,8 +24,6 @@ from .helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -117,7 +115,7 @@ class CombinedLight(LightEntity):
                 self._update_target_brightness_from_children(
                     manual_update=True, changed_entity_id=entity_id
                 )
-            
+
             self.async_schedule_update_ha_state()
 
         self._remove_listener = self.hass.bus.async_listen(
@@ -393,7 +391,7 @@ class CombinedLight(LightEntity):
         self, overall_pct: float, changed_entity_id: str | None = None
     ) -> None:
         """Drive all zones to match the inferred overall brightness.
-        
+
         Args:
             overall_pct: Target overall brightness percentage
             changed_entity_id: Entity that was manually changed (will be excluded)
@@ -432,7 +430,9 @@ class CombinedLight(LightEntity):
                 _LOGGER.debug("Waiting for lock in back-propagation")
 
             async with self._lock:
-                await self._control_all_zones(filtered_zones, zone_brightness, caller_ctx)
+                await self._control_all_zones(
+                    filtered_zones, zone_brightness, caller_ctx
+                )
         except asyncio.CancelledError:
             raise
         except Exception:  # pylint: disable=broad-except

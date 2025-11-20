@@ -16,8 +16,6 @@ from custom_components.combined_lights.light import (
 )
 
 
-
-
 class TestAsyncSetupEntry:
     """Test async_setup_entry function."""
 
@@ -101,16 +99,16 @@ class TestCombinedLight:
         brightness_calc = combined_light._brightness_calc
         # Stage 1 is active from 0 to 100% overall brightness
         # In advanced config, Stage 1 has Quadratic curve
-        
+
         # At 0% overall, should be 0%
         assert brightness_calc.calculate_zone_brightness(0, "stage_1") == 0.0
-        
+
         # At 15% overall (halfway to 30% breakpoint), progress is 15/100 = 0.15
         # Quadratic: 0.15^2 = 0.0225
         # Brightness: 1 + 0.0225 * 99 = 3.2275
         result = brightness_calc.calculate_zone_brightness(15, "stage_1")
         assert abs(result - 3.2275) < 0.1
-        
+
         # At 100% overall, should be 100%
         assert brightness_calc.calculate_zone_brightness(100, "stage_1") == 100.0
 
@@ -121,19 +119,19 @@ class TestCombinedLight:
         brightness_calc = combined_light._brightness_calc
         # Stage 2 activates at 30% (breakpoint 1)
         # Curve is default (Linear)
-        
+
         # Below 30%, should be 0
         assert brightness_calc.calculate_zone_brightness(20, "stage_2") == 0.0
-        
+
         # At 30%, should be 0 (just activating)
         assert brightness_calc.calculate_zone_brightness(30, "stage_2") == 0.0
-        
+
         # At 65% (midway between 30 and 100 is 65), progress = (65-30)/(100-30) = 35/70 = 0.5
         # Linear: 0.5
         # Brightness: 1 + 0.5 * 99 = 50.5
         result = brightness_calc.calculate_zone_brightness(65, "stage_2")
         assert abs(result - 50.5) < 0.1
-        
+
         # At 100%, should be 100%
         assert brightness_calc.calculate_zone_brightness(100, "stage_2") == 100.0
 

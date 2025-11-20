@@ -204,14 +204,13 @@ class TestBrightnessCalculator:
         # - Ease-in (quadratic): 0.5^2 = 0.25 (lower)
         # - Linear: 0.5
         # - Ease-out (sqrt): sqrt(0.5) ≈ 0.707 (higher)
-        
+
         sqrt_result = brightness_calc._apply_brightness_curve(0.5, "sqrt")
         linear_result = brightness_calc._apply_brightness_curve(0.5, "linear")
         quadratic_result = brightness_calc._apply_brightness_curve(0.5, "quadratic")
-        
+
         assert sqrt_result > linear_result > quadratic_result
         assert abs(sqrt_result - 0.707) < 0.01
-
 
     def test_brightness_calculation_with_fixture_data(self):
         """Test brightness calculation using fixture data."""

@@ -1,4 +1,5 @@
 """Light controller helper."""
+
 from __future__ import annotations
 
 import logging
@@ -65,7 +66,9 @@ class LightController:
             except (ServiceNotFound, ValueError) as err:
                 _LOGGER.error("Failed to control light %s: %s", entity_id, err)
             except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected error controlling light %s: %s", entity_id, err)
+                _LOGGER.exception(
+                    "Unexpected error controlling light %s: %s", entity_id, err
+                )
 
         return expected_states
 
@@ -97,6 +100,8 @@ class LightController:
             except (ServiceNotFound, ValueError) as err:
                 _LOGGER.error("Failed to turn off light %s: %s", entity_id, err)
             except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected error turning off light %s: %s", entity_id, err)
+                _LOGGER.exception(
+                    "Unexpected error turning off light %s: %s", entity_id, err
+                )
 
         return expected_states

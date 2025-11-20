@@ -60,7 +60,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_4_LIGHTS: [],
             },
         )
-        
+
         assert result2["type"] is FlowResultType.FORM
         assert result2["step_id"] == "curves"
 
@@ -91,7 +91,9 @@ class TestCombinedLightsConfigFlow:
             CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
         }
 
-    async def test_full_flow_custom_curves_and_advanced(self, hass: HomeAssistant) -> None:
+    async def test_full_flow_custom_curves_and_advanced(
+        self, hass: HomeAssistant
+    ) -> None:
         """Test full config flow with custom curves."""
         # Start with user step
         result = await hass.config_entries.flow.async_init(
@@ -120,7 +122,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_4_CURVE: "linear",
             },
         )
-        
+
         assert result3["type"] is FlowResultType.CREATE_ENTRY
         assert result3["data"][CONF_STAGE_1_CURVE] == CURVE_QUADRATIC
         assert result3["data"][CONF_BREAKPOINTS] == DEFAULT_BREAKPOINTS
@@ -182,7 +184,7 @@ class TestCombinedLightsConfigFlow:
 
         assert result2["type"] is FlowResultType.FORM
         assert result2["step_id"] == "reconfigure_curves"
-        
+
         # Complete curves step
         result3 = await hass.config_entries.flow.async_configure(
             result2["flow_id"],
@@ -193,7 +195,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
             },
         )
-        
+
         assert result3["type"] is FlowResultType.ABORT
         assert result3["reason"] == "reconfigure_successful"
         assert config_entry.data[CONF_STAGE_1_CURVE] == CURVE_QUADRATIC

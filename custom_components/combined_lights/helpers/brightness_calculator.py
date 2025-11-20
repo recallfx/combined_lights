@@ -67,7 +67,7 @@ class BrightnessCalculator:
             Zone brightness percentage (0-100)
         """
         breakpoints = self._get_breakpoints()
-        
+
         # Determine stage index from zone name
         try:
             stage_idx = int(zone_name.split("_")[1]) - 1
@@ -91,7 +91,7 @@ class BrightnessCalculator:
         range_span = 100 - activation_point
         if range_span <= 0:
             return 100.0 if overall_pct >= 100 else 0.0
-            
+
         progress = (overall_pct - activation_point) / range_span
         progress = max(0.0, min(1.0, progress))
 
@@ -114,10 +114,10 @@ class BrightnessCalculator:
             return progress * progress * progress
         if curve_type == CURVE_SQRT:
             # Square root curve (ease-out): y = √x
-            return progress ** 0.5
+            return progress**0.5
         if curve_type == CURVE_CBRT:
             # Cube root curve (ease-out strong): y = ∛x
-            return progress ** (1/3)
+            return progress ** (1 / 3)
         # Linear curve: even response
         return progress
 
@@ -150,15 +150,15 @@ class BrightnessCalculator:
             Estimated overall brightness percentage (0-100)
         """
         breakpoints = self._get_breakpoints()
-        
+
         # Find the highest active stage (the one that activates last)
         # In progressive zones, higher stages activate at higher overall brightness.
         # So we should look at the highest stage that is ON.
         highest_active_stage_idx = -1
         highest_stage_brightness = 0.0
-        
+
         for i in range(4):
-            zone_name = f"stage_{i+1}"
+            zone_name = f"stage_{i + 1}"
             brightness = zone_brightness.get(zone_name)
             if brightness and brightness > 0:
                 highest_active_stage_idx = i
@@ -168,35 +168,35 @@ class BrightnessCalculator:
             return 0.0
 
         # Calculate overall brightness based on the highest active stage
-        # We reverse the calculation: 
+        # We reverse the calculation:
         # brightness = 1 + (curved_progress * 99)
         # curved_progress = (brightness - 1) / 99
-        
+
         curved_progress = max(0.0, (highest_stage_brightness - 1.0) / 99.0)
-        
+
         # Reverse curve
         curve_type = self._get_stage_curve(highest_active_stage_idx)
         progress = self._reverse_brightness_curve(curved_progress, curve_type)
-        
+
         # Map back to overall percentage
         # progress = (overall - activation) / (100 - activation)
         # overall = activation + progress * (100 - activation)
-        
+
         if highest_active_stage_idx == 0:
             activation_point = 0
         else:
             activation_point = breakpoints[highest_active_stage_idx - 1]
-            
+
         range_span = 100 - activation_point
         overall_pct = activation_point + (progress * range_span)
-        
+
         return max(0.0, min(100.0, overall_pct))
 
     def estimate_manual_indicator_from_zones(
         self, zone_brightness: dict[str, float | None]
     ) -> float:
         """Estimate slider percentage for manual updates using stage coverage.
-        
+
         For progressive zones, we can just use the standard estimation logic
         since it finds the "highest" active stage and calculates from there.
         """
@@ -214,15 +214,15 @@ class BrightnessCalculator:
         """
         if curve_type == CURVE_QUADRATIC:
             # y = x^2 -> x = sqrt(y)
-            return curved_value ** 0.5
+            return curved_value**0.5
         if curve_type == CURVE_CUBIC:
             # y = x^3 -> x = cbrt(y)
-            return curved_value ** (1/3)
+            return curved_value ** (1 / 3)
         if curve_type == CURVE_SQRT:
             # y = sqrt(x) -> x = y^2
-            return curved_value ** 2
+            return curved_value**2
         if curve_type == CURVE_CBRT:
             # y = cbrt(x) -> x = y^3
-            return curved_value ** 3
+            return curved_value**3
         # Linear: no transformation needed
         return curved_value

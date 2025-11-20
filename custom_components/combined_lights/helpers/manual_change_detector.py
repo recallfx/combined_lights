@@ -1,4 +1,5 @@
 """Manual change detector helper."""
+
 from __future__ import annotations
 
 from homeassistant.core import Context, Event
@@ -47,8 +48,7 @@ class ManualChangeDetector:
         )
         expected_brightness = self._expected_states.get(entity_id)
         context_is_external = (
-            event.context
-            and event.context.id not in self._recent_contexts
+            event.context and event.context.id not in self._recent_contexts
         )
 
         # If the event comes from one of our recent contexts, it's not manual
