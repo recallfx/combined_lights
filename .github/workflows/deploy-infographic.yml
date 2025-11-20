@@ -38,7 +38,7 @@ jobs:
 
       - name: Build
         working-directory: infographic
-        run: bun run build -- --base=/ha-combined-lights/
+        run: bun run build -- --base=/combined_lights/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

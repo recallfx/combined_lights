@@ -4,7 +4,7 @@ A Home Assistant custom component that creates a single unified light entity tha
 
 ### Interactive Visualizer
 
-Want to see exactly how your lights will behave? Check out the [Interactive Visualizer](https://recallfx.github.io/ha-combined-lights/) to experiment with different curves and see how the stages activate across the brightness range.
+Want to see exactly how your lights will behave? Check out the [Interactive Visualizer](https://recallfx.github.io/combined_lights/) to experiment with different curves and see how the stages activate across the brightness range.
 
 ![Combined Lights Configuration](infographic/combined-lights-config.png)
 
