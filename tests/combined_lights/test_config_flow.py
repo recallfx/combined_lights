@@ -1,9 +1,7 @@
 """Test the Combined Lights config flow."""
 
-from unittest.mock import patch
 from uuid import uuid4
 
-import pytest
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME

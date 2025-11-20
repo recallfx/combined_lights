@@ -1,20 +1,15 @@
 """Test feedback loops and potential interference in Combined Lights."""
-import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from homeassistant.components.light import ATTR_BRIGHTNESS, DOMAIN as LIGHT_DOMAIN
+from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    EVENT_STATE_CHANGED,
-    SERVICE_TURN_ON,
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import Context, HomeAssistant, State
+from homeassistant.core import HomeAssistant
 
 from custom_components.combined_lights.const import CONF_ENABLE_BACK_PROPAGATION
-from custom_components.combined_lights.light import CombinedLight
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 

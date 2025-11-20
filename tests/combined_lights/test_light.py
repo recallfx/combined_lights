@@ -4,13 +4,11 @@ from unittest.mock import Mock
 
 import pytest
 from homeassistant.components.light import ColorMode
-from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 
 from custom_components.combined_lights.const import (
     CURVE_LINEAR,
     CURVE_QUADRATIC,
-    DEFAULT_BREAKPOINTS,
 )
 from custom_components.combined_lights.light import (
     CombinedLight,

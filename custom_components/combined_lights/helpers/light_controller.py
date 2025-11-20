@@ -43,7 +43,6 @@ class LightController:
             "LightController.turn_on_lights: brightness_pct=%.1f%%, brightness_value=%d, entities=%s",
             brightness_pct,
             brightness_value,
-            lights,
         )
 
         for entity_id in light_entities:

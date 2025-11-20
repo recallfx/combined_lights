@@ -2,7 +2,7 @@
 
 import pytest
 from homeassistant.core import HomeAssistant
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from custom_components.combined_lights.light import CombinedLight
 
