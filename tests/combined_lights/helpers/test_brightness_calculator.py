@@ -174,6 +174,45 @@ class TestBrightnessCalculator:
             # Should be approximately equal (within numerical tolerance)
             assert abs(reversed_linear - linear) < 0.05
 
+    def test_reverse_curve_sqrt(self, mock_entry):
+        """Test reversing sqrt (ease-out) brightness curve."""
+        brightness_calc = BrightnessCalculator(mock_entry)
+
+        test_values = [0.1, 0.3, 0.5, 0.7, 0.9]
+        for linear in test_values:
+            curved = brightness_calc._apply_brightness_curve(linear, "sqrt")
+            reversed_linear = brightness_calc._reverse_brightness_curve(curved, "sqrt")
+            # Should be approximately equal (within numerical tolerance)
+            assert abs(reversed_linear - linear) < 0.05
+
+    def test_reverse_curve_cbrt(self, mock_entry):
+        """Test reversing cbrt (ease-out strong) brightness curve."""
+        brightness_calc = BrightnessCalculator(mock_entry)
+
+        test_values = [0.1, 0.3, 0.5, 0.7, 0.9]
+        for linear in test_values:
+            curved = brightness_calc._apply_brightness_curve(linear, "cbrt")
+            reversed_linear = brightness_calc._reverse_brightness_curve(curved, "cbrt")
+            # Should be approximately equal (within numerical tolerance)
+            assert abs(reversed_linear - linear) < 0.05
+
+    def test_ease_out_curves_characteristic(self, mock_entry):
+        """Test that ease-out curves produce higher brightness at 50% progress."""
+        brightness_calc = BrightnessCalculator(mock_entry)
+
+        # At 50% progress:
+        # - Ease-in (quadratic): 0.5^2 = 0.25 (lower)
+        # - Linear: 0.5
+        # - Ease-out (sqrt): sqrt(0.5) ≈ 0.707 (higher)
+        
+        sqrt_result = brightness_calc._apply_brightness_curve(0.5, "sqrt")
+        linear_result = brightness_calc._apply_brightness_curve(0.5, "linear")
+        quadratic_result = brightness_calc._apply_brightness_curve(0.5, "quadratic")
+        
+        assert sqrt_result > linear_result > quadratic_result
+        assert abs(sqrt_result - 0.707) < 0.01
+
+
     def test_brightness_calculation_with_fixture_data(self):
         """Test brightness calculation using fixture data."""
         # Load test cases from fixture

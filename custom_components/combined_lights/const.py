@@ -29,8 +29,10 @@ DEFAULT_ENABLE_BACK_PROPAGATION = False
 
 # Brightness curve types
 CURVE_LINEAR = "linear"
-CURVE_QUADRATIC = "quadratic"  # More precision at low brightness
-CURVE_CUBIC = "cubic"  # Even more precision at low brightness
+CURVE_QUADRATIC = "quadratic"  # Ease-in - gentle start
+CURVE_CUBIC = "cubic"  # Ease-in strong - very gentle start
+CURVE_SQRT = "sqrt"  # Ease-out - quick start, gentle finish
+CURVE_CBRT = "cbrt"  # Ease-out strong - very quick start
 
 # Default curve - linear provides most predictable behavior
 DEFAULT_BRIGHTNESS_CURVE = CURVE_LINEAR

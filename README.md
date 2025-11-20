@@ -282,24 +282,33 @@ This modular design makes the codebase maintainable and testable.
 
 Each stage can use a different curve type to control how it brightens:
 
-```python
-# Linear (default): Even response across the range
-# progress = x
-# Example: 50% progress = 50% brightness
+#### Ease-In Curves (Gentle Start)
+- **Ease-In Strong (Cubic)**: Very gentle start, strong acceleration
+  - `progress = x³`
+  - Example: 50% progress = 12.5% brightness
+  - **Use case**: Night lights, ambient strips requiring very gentle low-light control
 
-# Quadratic: More control at low brightness
-# progress = x²
-# Example: 50% progress = 25% brightness (gentler at low levels)
+- **Ease-In (Quadratic)**: Gentle start, moderate acceleration
+  - `progress = x²`
+  - Example: 50% progress = 25% brightness
+  - **Use case**: LED strips that are too bright at low levels
 
-# Cubic: Maximum control at low brightness  
-# progress = x³
-# Example: 50% progress = 12.5% brightness (very gentle at low levels)
-```
+#### Linear (Even Response)
+- **Linear**: Even response across the range
+  - `progress = x`
+  - Example: 50% progress = 50% brightness
+  - **Use case**: Standard bulbs, general-purpose lighting
 
-**Use Cases:**
-- **Linear**: Standard bulbs, task lighting
-- **Quadratic**: LED strips that are too bright at low levels
-- **Cubic**: Night lights, ambient strips requiring very gentle low-light control
+#### Ease-Out Curves (Quick Start)
+- **Ease-Out (Square Root)**: Quick start, gentle slowdown
+  - `progress = √x`
+  - Example: 50% progress = 71% brightness
+  - **Use case**: Task lighting that needs to reach useful brightness quickly
+
+- **Ease-Out Strong (Cube Root)**: Very quick start, strong slowdown
+  - `progress = ∛x`
+  - Example: 50% progress = 79% brightness
+  - **Use case**: Work lights, areas needing immediate high brightness
 
 ## Contributing
 

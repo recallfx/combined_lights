@@ -10,8 +10,10 @@ from ..const import (
     CONF_STAGE_2_CURVE,
     CONF_STAGE_3_CURVE,
     CONF_STAGE_4_CURVE,
+    CURVE_CBRT,
     CURVE_CUBIC,
     CURVE_QUADRATIC,
+    CURVE_SQRT,
     DEFAULT_BREAKPOINTS,
     DEFAULT_STAGE_1_CURVE,
     DEFAULT_STAGE_2_CURVE,
@@ -105,11 +107,17 @@ class BrightnessCalculator:
     def _apply_brightness_curve(self, progress: float, curve_type: str) -> float:
         """Apply brightness curve to linear progress for more natural feel."""
         if curve_type == CURVE_QUADRATIC:
-            # Quadratic curve: y = x^2
+            # Quadratic curve (ease-in): y = x^2
             return progress * progress
         if curve_type == CURVE_CUBIC:
-            # Cubic curve: y = x^3
+            # Cubic curve (ease-in strong): y = x^3
             return progress * progress * progress
+        if curve_type == CURVE_SQRT:
+            # Square root curve (ease-out): y = √x
+            return progress ** 0.5
+        if curve_type == CURVE_CBRT:
+            # Cube root curve (ease-out strong): y = ∛x
+            return progress ** (1/3)
         # Linear curve: even response
         return progress
 
@@ -199,7 +207,7 @@ class BrightnessCalculator:
 
         Args:
             curved_value: The curved brightness value (0.0-1.0)
-            curve_type: Type of curve (linear, quadratic, cubic)
+            curve_type: Type of curve (linear, quadratic, cubic, sqrt, cbrt)
 
         Returns:
             Linear progress value (0.0-1.0)
@@ -210,5 +218,11 @@ class BrightnessCalculator:
         if curve_type == CURVE_CUBIC:
             # y = x^3 -> x = cbrt(y)
             return curved_value ** (1/3)
+        if curve_type == CURVE_SQRT:
+            # y = sqrt(x) -> x = y^2
+            return curved_value ** 2
+        if curve_type == CURVE_CBRT:
+            # y = cbrt(x) -> x = y^3
+            return curved_value ** 3
         # Linear: no transformation needed
         return curved_value

@@ -22,9 +22,11 @@ from .const import (
     CONF_STAGE_3_LIGHTS,
     CONF_STAGE_4_CURVE,
     CONF_STAGE_4_LIGHTS,
+    CURVE_CBRT,
     CURVE_CUBIC,
     CURVE_LINEAR,
     CURVE_QUADRATIC,
+    CURVE_SQRT,
     DEFAULT_BREAKPOINTS,
     DEFAULT_STAGE_1_CURVE,
     DEFAULT_STAGE_2_CURVE,
@@ -49,15 +51,11 @@ def create_curve_selector() -> selector.SelectSelector:
     return selector.SelectSelector(
         selector.SelectSelectorConfig(
             options=[
+                {"value": CURVE_CUBIC, "label": "Ease-In Strong (very gentle start)"},
+                {"value": CURVE_QUADRATIC, "label": "Ease-In (gentle start)"},
                 {"value": CURVE_LINEAR, "label": "Linear (even response)"},
-                {
-                    "value": CURVE_QUADRATIC,
-                    "label": "Quadratic (more precision at low brightness)",
-                },
-                {
-                    "value": CURVE_CUBIC,
-                    "label": "Cubic (maximum precision at low brightness)",
-                },
+                {"value": CURVE_SQRT, "label": "Ease-Out (quick start)"},
+                {"value": CURVE_CBRT, "label": "Ease-Out Strong (very quick start)"},
             ]
         )
     )
