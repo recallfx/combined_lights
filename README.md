@@ -6,7 +6,7 @@ A Home Assistant custom component that creates a single unified light entity tha
 
 Combined Lights transforms your collection of individual lights into a cohesive lighting system. Set one brightness level, and watch as different zones of lights activate and adjust their brightness based on your configured stages and ranges.
 
-The integration creates stages based on brightness breakpoints (e.g., 1-25%, 26-50%, 51-75%, 76-100%) and allows you to define which lights are active in each stage and what brightness they should have.
+The integration creates stages based on fixed brightness breakpoints at 30%, 60%, and 90%, dividing the brightness range into four progressive zones. Each zone activates at its corresponding breakpoint and brightens as overall brightness increases.
 
 ## Key Features
 
@@ -14,21 +14,21 @@ The integration creates stages based on brightness breakpoints (e.g., 1-25%, 26-
 - **Progressive Activation**: Lights activate in stages as overall brightness increases
 - **Bidirectional Sync**: Wall switch changes automatically update the combined light brightness
 - **Configurable Back-Propagation**: Optionally push manual adjustments to every stage to keep the scene aligned
-- **Flexible Brightness Mapping**: Each zone can have different brightness ranges for each stage
+- **Configurable Brightness Curves**: Each stage can use linear, quadratic, or cubic curves for precise control
 - **Multiple Curve Types**: Linear, quadratic, or cubic brightness curves for fine-tuned control
 - **Smart Context Awareness**: Distinguishes between manual changes and automation-driven adjustments
 - **Native Home Assistant Integration**: Uses config flow for easy setup and reconfiguration
 
 ## How It Works
 
-The integration divides the brightness scale (0-100%) into configurable stages using breakpoints. For example, with breakpoints `[25, 50, 75]`:
+The integration divides the brightness scale (0-100%) into four progressive stages using fixed breakpoints at `[30, 60, 90]`:
 
-- **Stage 1**: 1-25% overall brightness
-- **Stage 2**: 26-50% overall brightness  
-- **Stage 3**: 51-75% overall brightness
-- **Stage 4**: 76-100% overall brightness
+- **Stage 1**: Active from 0% - Always on, brightens throughout entire range
+- **Stage 2**: Activates at 30% - Brightens from 30% to 100%
+- **Stage 3**: Activates at 60% - Brightens from 60% to 100%
+- **Stage 4**: Activates at 90% - Brightens from 90% to 100%
 
-Each light zone (stage_1_lights, stage_2_lights, etc.) can be configured with brightness ranges that define how bright those lights should be during each stage.
+Each stage uses a brightness curve (linear, quadratic, or cubic) to control how it brightens across its active range.
 
 ### Bidirectional Control
 
@@ -267,40 +267,39 @@ Note: With bidirectional sync enabled, most wall switch changes will update the 
 
 ## Advanced Usage
 
-### Custom Breakpoints
+### Architecture
 
-Adjust breakpoints to match your usage patterns:
+The integration uses a modular helper package structure for clean separation of concerns:
 
-```yaml
-# Fine control at low levels, big jumps at high levels
-breakpoints: [15, 30, 80]
+- **BrightnessCalculator**: Handles all brightness calculations and curve applications
+- **ZoneManager**: Manages light zones and their configuration
+- **LightController**: Controls actual light state changes
+- **ManualChangeDetector**: Detects manual interventions vs. automated changes
 
-# Even distribution
-breakpoints: [25, 50, 75]
+This modular design makes the codebase maintainable and testable.
 
-# Most control in middle range
-breakpoints: [10, 40, 90]
+### Understanding Brightness Curves
+
+Each stage can use a different curve type to control how it brightens:
+
+```python
+# Linear (default): Even response across the range
+# progress = x
+# Example: 50% progress = 50% brightness
+
+# Quadratic: More control at low brightness
+# progress = x²
+# Example: 50% progress = 25% brightness (gentler at low levels)
+
+# Cubic: Maximum control at low brightness  
+# progress = x³
+# Example: 50% progress = 12.5% brightness (very gentle at low levels)
 ```
 
-### Zone-Specific Behavior
-
-Different zones can have completely different brightness patterns:
-
-```yaml
-# Ambient lights: Always on, gentle increases
-stage_1_brightness_ranges:
-  - "10, 15"   # Barely visible
-  - "20, 30"   # Gentle glow
-  - "35, 50"   # Noticeable but soft
-  - "60, 80"   # Full ambient
-
-# Task lights: Off until needed, then strong
-stage_2_brightness_ranges:
-  - "0, 0"     # Off
-  - "60, 80"   # Immediate useful brightness
-  - "80, 90"   # High task lighting
-  - "90, 100"  # Maximum brightness
-```
+**Use Cases:**
+- **Linear**: Standard bulbs, task lighting
+- **Quadratic**: LED strips that are too bright at low levels
+- **Cubic**: Night lights, ambient strips requiring very gentle low-light control
 
 ## Contributing
 
