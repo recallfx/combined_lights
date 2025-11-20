@@ -1,0 +1,5 @@
+{
+  "name": "Combined Lights Visualizer",
+  "description": "An interactive infographic demonstrating how the Combined Lights integration stages brightness across multiple zones using configurable curves and breakpoints.",
+  "requestFramePermissions": []
+}
