@@ -55,12 +55,15 @@ class ZoneManager:
             light_entities: List of light entity IDs
 
         Returns:
-            Average brightness or None if no lights are on
+            Average brightness or None if no lights are on/available
         """
         brightness_values = []
         for entity_id in light_entities:
             state = hass.states.get(entity_id)
-            if state and state.state == "on":
+            # Skip unavailable/unknown states - they can't provide valid brightness
+            if state is None or state.state in ("unavailable", "unknown"):
+                continue
+            if state.state == "on":
                 brightness = state.attributes.get("brightness")
                 if brightness is not None:
                     brightness_values.append(brightness)
@@ -76,7 +79,10 @@ class ZoneManager:
         all_lights = self.get_all_lights()
         for entity_id in all_lights:
             state = hass.states.get(entity_id)
-            if state and state.state == "on":
+            # Skip unavailable/unknown states
+            if state is None or state.state in ("unavailable", "unknown"):
+                continue
+            if state.state == "on":
                 return True
         return False
 

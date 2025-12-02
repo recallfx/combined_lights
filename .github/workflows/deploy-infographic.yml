@@ -26,19 +26,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        working-directory: infographic
-        run: bun install
-
-      - name: Build
-        working-directory: infographic
-        run: bun run build -- --base=/combined_lights/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -46,7 +33,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'infographic/dist'
+          path: 'infographic'
 
       - name: Deploy to GitHub Pages
         id: deployment

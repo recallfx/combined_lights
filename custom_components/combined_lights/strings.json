@@ -86,6 +86,10 @@
       "already_configured": "Device is already configured",
       "entry_not_found": "Configuration entry not found",
       "reconfigure_successful": "Configuration updated successfully"
+    },
+    "error": {
+      "no_lights_selected": "At least one light must be selected across all stages",
+      "duplicate_lights": "Each light can only be assigned to one stage"
     }
   }
 }

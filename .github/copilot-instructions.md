@@ -4,9 +4,32 @@
 
 tbd
 
+## Using uv
+
+This project uses `uv` for Python environment and dependency management. Always prefix Python commands with `uv run` - never run `python`, `pytest`, or other Python tools directly. Examples:
+- `uv run pytest tests/` - run tests
+- `uv run python script.py` - run a script
+- `uv run mypy .` - run type checking
+
+## Running the infographic
+
+The infographic is in the `infographic/` folder. It's a static site - serve it with:
+```bash
+cd infographic && python3 -m http.server 8080
+```
+Note: Use `python3`, not `python` (not available on this system).
+
+## Running the simulation
+
+Start the simulation server with:
+```bash
+uv run python simulation/run_server.py
+```
+Opens at http://localhost:8091 by default.
+
 ## Testing commands
 
-Run tests with `uv run pytest tests/` (not `pytest` directly - uv manages the environment). Tests use pytest-homeassistant-custom-component which provides fixtures like `hass` and `MockConfigEntry`.
+Run tests with `uv run pytest tests/`. Tests use pytest-homeassistant-custom-component which provides fixtures like `hass` and `MockConfigEntry`.
 
 For new test files, use `ConfigEntry` from `homeassistant.config_entries`, not a custom mock. Required parameters: version, minor_version, domain, title, data, options, entry_id, source, unique_id, discovery_keys.
 
@@ -33,6 +56,8 @@ Reconfiguration reuses the same flow with pre-filled data. Use `self.config_entr
 Don't use `timer.start_time` - it's private. Use `timer.end_time` or `timer.remaining_seconds` instead.
 
 Don't import from `homeassistant.components.combined_lights` - this is a custom component, use `custom_components.combined_lights`.
+
+Don't send command to the background when testing, for example simulation should  be run in the main thread.
 
 ## File organization
 

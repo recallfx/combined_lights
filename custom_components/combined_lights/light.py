@@ -11,9 +11,11 @@ from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEnti
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Context, Event, HomeAssistant, callback
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
+from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION, DOMAIN
 from .helpers import (
     BrightnessCalculator,
     LightController,
@@ -34,8 +36,10 @@ async def async_setup_entry(
     async_add_entities([CombinedLight(entry)], True)
 
 
-class CombinedLight(LightEntity):
+class CombinedLight(LightEntity, RestoreEntity):
     """Combined Light entity that controls multiple light zones."""
+
+    _attr_has_entity_name = True
 
     def __init__(self, entry: ConfigEntry) -> None:
         """Initialize the Combined Light."""
@@ -46,6 +50,15 @@ class CombinedLight(LightEntity):
         self._attr_brightness = 255
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         self._attr_color_mode = ColorMode.BRIGHTNESS
+
+        # Device info for UI grouping
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=entry.data.get("name", "Combined Lights"),
+            manufacturer="Combined Lights",
+            model="Virtual Light Controller",
+            sw_version="2.7.0",
+        )
 
         # Helper instances
         self._brightness_calc = BrightnessCalculator(entry)
@@ -68,6 +81,15 @@ class CombinedLight(LightEntity):
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant."""
         await super().async_added_to_hass()
+
+        # Restore previous state if available
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state == "on":
+                self._attr_is_on = True
+                if (brightness := last_state.attributes.get("brightness")) is not None:
+                    self._target_brightness = brightness
+                    self._target_brightness_initialized = True
+                    _LOGGER.debug("Restored brightness from last state: %s", brightness)
 
         # Initialize light controller with hass instance
         self._light_controller = LightController(self.hass)
@@ -242,8 +264,17 @@ class CombinedLight(LightEntity):
 
     @property
     def available(self) -> bool:
-        """Return if entity is available."""
-        return True
+        """Return if entity is available (at least one member light is available)."""
+        if not self.hass:
+            return False
+        all_lights = self._zone_manager.get_all_lights()
+        if not all_lights:
+            return False
+        for entity_id in all_lights:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state not in ("unavailable", "unknown"):
+                return True
+        return False
 
     @property
     def is_on(self) -> bool:
@@ -295,8 +326,19 @@ class CombinedLight(LightEntity):
                 {k: f"{v:.1f}%" for k, v in zone_brightness.items()},
             )
 
-            # Control all zones
-            await self._control_all_zones(light_zones, zone_brightness, caller_ctx)
+            # Control all zones and check if any succeeded
+            any_success = await self._control_all_zones(
+                light_zones, zone_brightness, caller_ctx
+            )
+
+            if not any_success:
+                _LOGGER.warning(
+                    "No zones were successfully controlled - combined light state may be inaccurate"
+                )
+                # Don't set is_on to True if nothing actually turned on
+                self._attr_is_on = False
+                self.async_write_ha_state()
+                return
 
             # Log the operation
             stage = self._brightness_calc.get_stage_from_brightness(brightness_pct)
@@ -325,10 +367,15 @@ class CombinedLight(LightEntity):
         light_zones: dict[str, list[str]],
         zone_brightness: dict[str, float],
         context: Context,
-    ) -> None:
-        """Control all light zones based on calculated brightness values."""
+    ) -> bool:
+        """Control all light zones based on calculated brightness values.
+
+        Returns:
+            True if at least one zone was successfully controlled, False otherwise.
+        """
         # Set updating flag to prevent feedback loops
         self._manual_detector.set_updating_flag(True)
+        any_success = False
 
         try:
             for zone_name, lights in light_zones.items():
@@ -345,6 +392,15 @@ class CombinedLight(LightEntity):
                 )
                 try:
                     if brightness > 0:
+                        # CRITICAL: Track expected states BEFORE awaiting service call
+                        # to prevent race condition where state change event arrives
+                        # before we can track the expectation
+                        brightness_value = int(brightness / 100.0 * 255)
+                        for entity_id in lights:
+                            self._manual_detector.track_expected_state(
+                                entity_id, brightness_value
+                            )
+
                         expected_states = await self._light_controller.turn_on_lights(
                             lights, brightness, context
                         )
@@ -353,24 +409,27 @@ class CombinedLight(LightEntity):
                             zone_name,
                             expected_states,
                         )
-                        # Track expected states
-                        for entity_id, brightness_val in expected_states.items():
-                            self._manual_detector.track_expected_state(
-                                entity_id, brightness_val
-                            )
+                        if expected_states:
+                            any_success = True
                     else:
+                        # CRITICAL: Track expected states BEFORE awaiting service call
+                        for entity_id in lights:
+                            self._manual_detector.track_expected_state(entity_id, 0)
+
                         expected_states = await self._light_controller.turn_off_lights(
                             lights, context
                         )
-                        # Track expected states
-                        for entity_id, brightness_val in expected_states.items():
-                            self._manual_detector.track_expected_state(
-                                entity_id, brightness_val
-                            )
+                        if expected_states:
+                            any_success = True
                 except Exception as err:  # pylint: disable=broad-except
                     _LOGGER.error("Failed to control zone %s: %s", zone_name, err)
+                    # Clean up expected states for failed entities
+                    for entity_id in lights:
+                        self._manual_detector.cleanup_expected_state(entity_id)
         finally:
             self._manual_detector.set_updating_flag(False)
+
+        return any_success
 
     def _schedule_back_propagation(
         self, overall_pct: float, changed_entity_id: str | None = None
@@ -460,14 +519,18 @@ class CombinedLight(LightEntity):
                 # Set updating flag to prevent feedback loops
                 self._manual_detector.set_updating_flag(True)
                 try:
-                    expected_states = await self._light_controller.turn_off_lights(
-                        all_lights, caller_ctx
-                    )
-                    # Track expected states
-                    for entity_id, brightness_val in expected_states.items():
-                        self._manual_detector.track_expected_state(
-                            entity_id, brightness_val
-                        )
+                    # CRITICAL: Track expected states BEFORE awaiting service call
+                    # to prevent race condition where state change event arrives
+                    # before we can track the expectation
+                    for entity_id in all_lights:
+                        self._manual_detector.track_expected_state(entity_id, 0)
+
+                    await self._light_controller.turn_off_lights(all_lights, caller_ctx)
+                except Exception as err:
+                    _LOGGER.error("Failed to turn off lights: %s", err)
+                    # Clean up expected states for failed entities
+                    for entity_id in all_lights:
+                        self._manual_detector.cleanup_expected_state(entity_id)
                 finally:
                     self._manual_detector.set_updating_flag(False)
 

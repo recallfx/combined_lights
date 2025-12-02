@@ -13,6 +13,14 @@ dependencies = [
     "syrupy>=4.0.0",
 ]
 
+[project.optional-dependencies]
+simulation = [
+    "aiohttp>=3.9.0",
+]
+
+[project.scripts]
+combined-lights-sim = "simulation.run_server:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = [".git"]
