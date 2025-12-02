@@ -1,10 +1,10 @@
 """Tests for concurrency handling in Combined Lights."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from homeassistant.core import HomeAssistant, Context
+from homeassistant.core import HomeAssistant
 
 from custom_components.combined_lights.light import CombinedLight
 from custom_components.combined_lights.const import CONF_ENABLE_BACK_PROPAGATION

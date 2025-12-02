@@ -369,7 +369,7 @@ class BaseCombinedLightsCoordinator(ABC):
             light.brightness = 0
 
         # Update overall state
-        any_on = any(l.is_on for l in self._lights.values())
+        any_on = any(light.is_on for light in self._lights.values())
         self._is_on = any_on
 
         # Calculate overall brightness based on the changed light

@@ -1,6 +1,5 @@
 """Tests for BaseBrightnessCalculator and BaseCombinedLightsCoordinator."""
 
-import pytest
 
 from custom_components.combined_lights.helpers.base_coordinator import (
     BaseBrightnessCalculator,
@@ -328,7 +327,7 @@ class TestBaseCombinedLightsCoordinator:
         # At 50% overall, stages 1 and 2 should be on
         coord.turn_on(brightness=int(50 / 100 * 255))
         
-        lights = {l.entity_id: l for l in coord.get_lights()}
+        lights = {light.entity_id: light for light in coord.get_lights()}
         
         assert lights["light.stage_1"].is_on
         assert lights["light.stage_2"].is_on
@@ -388,7 +387,7 @@ class TestBaseCombinedLightsCoordinator:
         lights = coord.get_lights()
         
         assert len(lights) == 4
-        entity_ids = [l.entity_id for l in lights]
+        entity_ids = [light.entity_id for light in lights]
         assert "light.stage_1" in entity_ids
         assert "light.stage_4" in entity_ids
 
