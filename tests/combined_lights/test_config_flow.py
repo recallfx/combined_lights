@@ -248,9 +248,7 @@ class TestCombinedLightsConfigFlow:
         assert result3["reason"] == "reconfigure_successful"
         assert config_entry.data[CONF_STAGE_1_CURVE] == CURVE_QUADRATIC
 
-    async def test_reconfigure_rejects_empty_lights(
-        self, hass: HomeAssistant
-    ) -> None:
+    async def test_reconfigure_rejects_empty_lights(self, hass: HomeAssistant) -> None:
         """Test that reconfigure rejects configuration with no lights."""
         # Create a mock config entry
         config_entry = ConfigEntry(

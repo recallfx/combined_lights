@@ -67,7 +67,7 @@ class SimBrightnessCalculator(BaseBrightnessCalculator):
 
 class SimCombinedLightsCoordinator(BaseCombinedLightsCoordinator):
     """Simulation coordinator extending the base coordinator.
-    
+
     Adds async interface and event history for the simulation UI.
     """
 
@@ -75,10 +75,10 @@ class SimCombinedLightsCoordinator(BaseCombinedLightsCoordinator):
         self._config = config or SimConfig.default()
         calculator = SimBrightnessCalculator(self._config)
         super().__init__(calculator)
-        
+
         self._listeners: list[Callable] = []
         self._history: list[dict] = []
-        
+
         # Create 4 lights, one per stage
         for i in range(1, 5):
             entity_id = f"light.stage_{i}"
@@ -93,11 +93,13 @@ class SimCombinedLightsCoordinator(BaseCombinedLightsCoordinator):
             asyncio.create_task(callback())
 
     def _record_event(self, event_type: str, description: str) -> None:
-        self._history.append({
-            "timestamp": time.time(),
-            "event_type": event_type,
-            "description": description,
-        })
+        self._history.append(
+            {
+                "timestamp": time.time(),
+                "event_type": event_type,
+                "description": description,
+            }
+        )
         if len(self._history) > 50:
             self._history.pop(0)
 
@@ -106,14 +108,14 @@ class SimCombinedLightsCoordinator(BaseCombinedLightsCoordinator):
         changes = self.turn_on(brightness)
         brightness_pct = self.target_brightness_pct
         self._record_event("auto", f"🔆 ON at {brightness_pct:.0f}%")
-        
+
         # Log individual light changes
         for entity_id, new_brightness in changes.items():
             stage = self._lights[entity_id].stage
             pct = new_brightness / 255 * 100 if new_brightness > 0 else 0
             if new_brightness > 0:
                 self._record_event("auto", f"  Stage {stage}: {pct:.0f}%")
-        
+
         self._notify_listeners()
 
     async def async_turn_off(self) -> None:
@@ -127,36 +129,40 @@ class SimCombinedLightsCoordinator(BaseCombinedLightsCoordinator):
         light = self._lights.get(entity_id)
         if not light:
             return
-        
+
         old_brightness = light.brightness
         old_pct = old_brightness / 255 * 100 if old_brightness > 0 else 0
         new_pct = brightness / 255 * 100 if brightness > 0 else 0
-        
+
         # Use base class method
         _, overall_pct = self.set_light_brightness(entity_id, brightness)
-        
+
         # Record manual change
         stage = light.stage
         if brightness > 0:
-            self._record_event("manual", f"✋ Stage {stage}: {old_pct:.0f}% → {new_pct:.0f}%")
+            self._record_event(
+                "manual", f"✋ Stage {stage}: {old_pct:.0f}% → {new_pct:.0f}%"
+            )
         else:
             self._record_event("manual", f"✋ Stage {stage}: OFF")
         self._record_event("manual", f"  → Overall: {overall_pct:.0f}%")
-        
+
         # Back-propagation: update other lights
         if self._config.enable_back_propagation and self._is_on:
             back_prop_changes = self.apply_back_propagation(exclude_entity_id=entity_id)
-            
+
             # Log back-propagation changes
             if back_prop_changes:
                 for bp_entity_id, bp_brightness in back_prop_changes.items():
                     bp_light = self._lights[bp_entity_id]
                     bp_pct = bp_brightness / 255 * 100 if bp_brightness > 0 else 0
                     if bp_brightness > 0:
-                        self._record_event("backprop", f"↩️ Stage {bp_light.stage}: {bp_pct:.0f}%")
+                        self._record_event(
+                            "backprop", f"↩️ Stage {bp_light.stage}: {bp_pct:.0f}%"
+                        )
                     else:
                         self._record_event("backprop", f"↩️ Stage {bp_light.stage}: OFF")
-        
+
         self._notify_listeners()
 
     def get_simulation_state(self) -> dict[str, Any]:
@@ -190,7 +196,9 @@ class SimCombinedLightsCoordinator(BaseCombinedLightsCoordinator):
         if "breakpoints" in config_updates:
             self._config.breakpoints = config_updates["breakpoints"]
         if "enable_back_propagation" in config_updates:
-            self._config.enable_back_propagation = config_updates["enable_back_propagation"]
+            self._config.enable_back_propagation = config_updates[
+                "enable_back_propagation"
+            ]
         if "stage_1_curve" in config_updates:
             self._config.stage_1_curve = config_updates["stage_1_curve"]
         if "stage_2_curve" in config_updates:
@@ -199,12 +207,12 @@ class SimCombinedLightsCoordinator(BaseCombinedLightsCoordinator):
             self._config.stage_3_curve = config_updates["stage_3_curve"]
         if "stage_4_curve" in config_updates:
             self._config.stage_4_curve = config_updates["stage_4_curve"]
-        
+
         # Recreate calculator with new config
         self._calculator = SimBrightnessCalculator(self._config)
-        
+
         # Recalculate if on
         if self._is_on:
             self.apply_brightness_to_lights()
-        
+
         self._notify_listeners()

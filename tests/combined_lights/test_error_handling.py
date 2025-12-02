@@ -223,7 +223,10 @@ class TestAsyncTurnOff:
 
         # Mock zone manager
         light._zone_manager = MagicMock()
-        light._zone_manager.get_all_lights.return_value = ["light.bulb_1", "light.bulb_2"]
+        light._zone_manager.get_all_lights.return_value = [
+            "light.bulb_1",
+            "light.bulb_2",
+        ]
 
         light.async_write_ha_state = MagicMock()
 
@@ -232,10 +235,14 @@ class TestAsyncTurnOff:
 
         # Verify that all tracks happened BEFORE all service_calls
         track_indices = [i for i, op in enumerate(operation_order) if op[0] == "track"]
-        service_indices = [i for i, op in enumerate(operation_order) if op[0] == "service_call"]
+        service_indices = [
+            i for i, op in enumerate(operation_order) if op[0] == "service_call"
+        ]
 
         assert len(track_indices) == 2, f"Expected 2 track calls, got {track_indices}"
-        assert len(service_indices) == 2, f"Expected 2 service calls, got {service_indices}"
+        assert len(service_indices) == 2, (
+            f"Expected 2 service calls, got {service_indices}"
+        )
         assert max(track_indices) < min(service_indices), (
             f"All track calls must happen before service calls. Order: {operation_order}"
         )
@@ -250,11 +257,16 @@ class TestAsyncTurnOff:
 
         # Mock zone manager
         light._zone_manager = MagicMock()
-        light._zone_manager.get_all_lights.return_value = ["light.bulb_1", "light.bulb_2"]
+        light._zone_manager.get_all_lights.return_value = [
+            "light.bulb_1",
+            "light.bulb_2",
+        ]
 
         # Mock controller to fail
         light._light_controller = AsyncMock()
-        light._light_controller.turn_off_lights.side_effect = Exception("Network failure")
+        light._light_controller.turn_off_lights.side_effect = Exception(
+            "Network failure"
+        )
 
         light.async_write_ha_state = MagicMock()
 

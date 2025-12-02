@@ -1,6 +1,5 @@
 """Tests for BaseBrightnessCalculator and BaseCombinedLightsCoordinator."""
 
-
 from custom_components.combined_lights.helpers.base_coordinator import (
     BaseBrightnessCalculator,
     BaseCombinedLightsCoordinator,
@@ -163,7 +162,7 @@ class TestBaseBrightnessCalculator:
     def test_estimate_overall_from_single_light_roundtrip(self):
         """Test that estimate_overall -> calculate_zone gives same brightness."""
         calc = MockBrightnessCalculator()
-        
+
         # Test various stage/brightness combinations
         test_cases = [
             (1, 50),
@@ -175,7 +174,7 @@ class TestBaseBrightnessCalculator:
             (4, 50),
             (4, 100),
         ]
-        
+
         for stage, brightness_pct in test_cases:
             overall = calc.estimate_overall_from_single_light(stage, brightness_pct)
             calculated = calc.calculate_zone_brightness(overall, stage)
@@ -200,7 +199,9 @@ class TestBaseBrightnessCalculator:
     def test_estimate_overall_from_zones_highest_active(self):
         """Should use highest active stage for estimation."""
         calc = MockBrightnessCalculator()
-        result = calc.estimate_overall_from_zones({1: 100.0, 2: 100.0, 3: 50.0, 4: None})
+        result = calc.estimate_overall_from_zones(
+            {1: 100.0, 2: 100.0, 3: 50.0, 4: None}
+        )
         # Stage 3 is highest active, 50% brightness within stage 3 range
         assert 60 < result < 100
 
@@ -242,7 +243,7 @@ class TestBaseBrightnessCalculator:
     def test_reverse_brightness_curve_roundtrip(self):
         """Test that apply->reverse gives original value."""
         calc = MockBrightnessCalculator()
-        
+
         for curve in ["linear", "quadratic", "cubic", "sqrt", "cbrt"]:
             for value in [0.1, 0.3, 0.5, 0.7, 0.9]:
                 curved = calc._apply_brightness_curve(value, curve)
@@ -267,9 +268,9 @@ class TestBaseCombinedLightsCoordinator:
         """Turn on with default brightness."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         coord.turn_on()
-        
+
         assert coord.is_on
         assert coord.target_brightness == 255
         assert coord.target_brightness_pct == 100.0
@@ -278,9 +279,9 @@ class TestBaseCombinedLightsCoordinator:
         """Turn on with specific brightness."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         coord.turn_on(brightness=128)
-        
+
         assert coord.is_on
         assert coord.target_brightness == 128
         assert 50.0 < coord.target_brightness_pct < 51.0
@@ -289,10 +290,10 @@ class TestBaseCombinedLightsCoordinator:
         """Turn off should set all lights to off."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         coord.turn_on()
         coord.turn_off()
-        
+
         assert not coord.is_on
         for light in coord.get_lights():
             assert not light.is_on
@@ -302,19 +303,19 @@ class TestBaseCombinedLightsCoordinator:
         """Test current stage is calculated from brightness."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         # Stage 1: 0-30%
         coord.turn_on(brightness=int(15 / 100 * 255))
         assert coord.current_stage == 1
-        
+
         # Stage 2: 30-60%
         coord.turn_on(brightness=int(45 / 100 * 255))
         assert coord.current_stage == 2
-        
+
         # Stage 3: 60-90%
         coord.turn_on(brightness=int(75 / 100 * 255))
         assert coord.current_stage == 3
-        
+
         # Stage 4: 90-100%
         coord.turn_on(brightness=int(95 / 100 * 255))
         assert coord.current_stage == 4
@@ -323,12 +324,12 @@ class TestBaseCombinedLightsCoordinator:
         """Test brightness is distributed to lights based on stage."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         # At 50% overall, stages 1 and 2 should be on
         coord.turn_on(brightness=int(50 / 100 * 255))
-        
+
         lights = {light.entity_id: light for light in coord.get_lights()}
-        
+
         assert lights["light.stage_1"].is_on
         assert lights["light.stage_2"].is_on
         assert not lights["light.stage_3"].is_on
@@ -338,12 +339,12 @@ class TestBaseCombinedLightsCoordinator:
         """Setting single light brightness updates overall state."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         coord.turn_on()
-        
+
         # Set stage 2 to 50% brightness
         _, overall_pct = coord.set_light_brightness("light.stage_2", 128)
-        
+
         # Overall should be somewhere in stage 2 range
         assert 30 < overall_pct < 100
 
@@ -351,12 +352,12 @@ class TestBaseCombinedLightsCoordinator:
         """Turning off a light should set overall to activation point."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         coord.turn_on()
-        
+
         # Turn off stage 3
         _, overall_pct = coord.set_light_brightness("light.stage_3", 0)
-        
+
         # Stage 3 activates at 60%, so overall should be 60%
         assert overall_pct == 60.0
 
@@ -364,16 +365,16 @@ class TestBaseCombinedLightsCoordinator:
         """Back-propagation updates other lights based on overall brightness."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         # Set to 50% overall
         coord.turn_on(brightness=int(50 / 100 * 255))
-        
+
         # Manually set stage 1 to different value
         coord._lights["light.stage_1"].brightness = 200
-        
+
         # Apply back-propagation excluding stage 1
         changes = coord.apply_back_propagation(exclude_entity_id="light.stage_1")
-        
+
         # Stage 1 should not be in changes
         assert "light.stage_1" not in changes
         # Other stages should be updated
@@ -383,9 +384,9 @@ class TestBaseCombinedLightsCoordinator:
         """Test getting all light states."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         lights = coord.get_lights()
-        
+
         assert len(lights) == 4
         entity_ids = [light.entity_id for light in lights]
         assert "light.stage_1" in entity_ids
@@ -395,9 +396,9 @@ class TestBaseCombinedLightsCoordinator:
         """Test getting a specific light state."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         light = coord.get_light("light.stage_2")
-        
+
         assert light is not None
         assert light.entity_id == "light.stage_2"
         assert light.stage == 2
@@ -406,19 +407,19 @@ class TestBaseCombinedLightsCoordinator:
         """Test getting non-existent light returns None."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         light = coord.get_light("light.nonexistent")
-        
+
         assert light is None
 
     def test_reset(self):
         """Test reset returns to initial state."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         coord.turn_on(brightness=200)
         coord.reset()
-        
+
         assert not coord.is_on
         assert coord.target_brightness == 255  # Default
         for light in coord.get_lights():
@@ -429,11 +430,11 @@ class TestBaseCombinedLightsCoordinator:
         """Test calculating brightness for all zones."""
         calc = MockBrightnessCalculator()
         coord = MockCoordinator(calc)
-        
+
         coord.turn_on(brightness=255)  # 100%
-        
+
         zone_brightness = coord.calculate_all_zone_brightness()
-        
+
         assert 1 in zone_brightness
         assert 2 in zone_brightness
         assert 3 in zone_brightness

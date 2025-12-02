@@ -135,7 +135,9 @@ class BaseBrightnessCalculator(ABC):
         if highest_active_stage == 0:
             return 0.0
 
-        return self._reverse_stage_brightness(highest_active_stage, highest_stage_brightness)
+        return self._reverse_stage_brightness(
+            highest_active_stage, highest_stage_brightness
+        )
 
     def estimate_overall_from_single_light(
         self, stage: int, brightness_pct: float
@@ -265,7 +267,9 @@ class BaseCombinedLightsCoordinator(ABC):
         """Return the current stage (1-4) based on brightness, or 0 if off."""
         if not self._is_on:
             return 0
-        stage_idx = self._calculator.get_stage_from_brightness(self.target_brightness_pct)
+        stage_idx = self._calculator.get_stage_from_brightness(
+            self.target_brightness_pct
+        )
         return stage_idx + 1
 
     def get_lights(self) -> list[LightState]:
@@ -384,7 +388,9 @@ class BaseCombinedLightsCoordinator(ABC):
 
         return {entity_id: brightness}, overall_pct
 
-    def apply_back_propagation(self, exclude_entity_id: str | None = None) -> dict[str, int]:
+    def apply_back_propagation(
+        self, exclude_entity_id: str | None = None
+    ) -> dict[str, int]:
         """Apply back-propagation to update all lights except the excluded one.
 
         Args:

@@ -89,9 +89,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                 if (brightness := last_state.attributes.get("brightness")) is not None:
                     self._target_brightness = brightness
                     self._target_brightness_initialized = True
-                    _LOGGER.debug(
-                        "Restored brightness from last state: %s", brightness
-                    )
+                    _LOGGER.debug("Restored brightness from last state: %s", brightness)
 
         # Initialize light controller with hass instance
         self._light_controller = LightController(self.hass)
@@ -329,8 +327,10 @@ class CombinedLight(LightEntity, RestoreEntity):
             )
 
             # Control all zones and check if any succeeded
-            any_success = await self._control_all_zones(light_zones, zone_brightness, caller_ctx)
-            
+            any_success = await self._control_all_zones(
+                light_zones, zone_brightness, caller_ctx
+            )
+
             if not any_success:
                 _LOGGER.warning(
                     "No zones were successfully controlled - combined light state may be inaccurate"
@@ -369,7 +369,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         context: Context,
     ) -> bool:
         """Control all light zones based on calculated brightness values.
-        
+
         Returns:
             True if at least one zone was successfully controlled, False otherwise.
         """
@@ -400,7 +400,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                             self._manual_detector.track_expected_state(
                                 entity_id, brightness_value
                             )
-                        
+
                         expected_states = await self._light_controller.turn_on_lights(
                             lights, brightness, context
                         )
@@ -415,7 +415,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                         # CRITICAL: Track expected states BEFORE awaiting service call
                         for entity_id in lights:
                             self._manual_detector.track_expected_state(entity_id, 0)
-                        
+
                         expected_states = await self._light_controller.turn_off_lights(
                             lights, context
                         )
@@ -428,7 +428,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                         self._manual_detector.cleanup_expected_state(entity_id)
         finally:
             self._manual_detector.set_updating_flag(False)
-        
+
         return any_success
 
     def _schedule_back_propagation(
@@ -524,10 +524,8 @@ class CombinedLight(LightEntity, RestoreEntity):
                     # before we can track the expectation
                     for entity_id in all_lights:
                         self._manual_detector.track_expected_state(entity_id, 0)
-                    
-                    await self._light_controller.turn_off_lights(
-                        all_lights, caller_ctx
-                    )
+
+                    await self._light_controller.turn_off_lights(all_lights, caller_ctx)
                 except Exception as err:
                     _LOGGER.error("Failed to turn off lights: %s", err)
                     # Clean up expected states for failed entities
