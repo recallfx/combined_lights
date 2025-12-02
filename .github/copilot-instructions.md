@@ -34,6 +34,8 @@ Don't use `timer.start_time` - it's private. Use `timer.end_time` or `timer.rema
 
 Don't import from `homeassistant.components.combined_lights` - this is a custom component, use `custom_components.combined_lights`.
 
+Don't send command to the background when testing, for example simulation should  be run in the main thread.
+
 ## File organization
 
 Tests mirror the source structure: `tests/combined_lights/test_*.py` corresponds to `custom_components/combined_lights/*.py`. Use `conftest.py` for shared fixtures.

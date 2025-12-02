@@ -277,12 +277,16 @@ Note: With bidirectional sync enabled, most wall switch changes will update the 
 
 The integration uses a modular helper package structure for clean separation of concerns:
 
-- **BrightnessCalculator**: Handles all brightness calculations and curve applications
+- **BaseCombinedLightsCoordinator**: Abstract base class containing core state management and brightness distribution logic
+- **BaseBrightnessCalculator**: Abstract base class for brightness calculations and curve applications
+- **BrightnessCalculator**: HA-specific implementation using ConfigEntry
 - **ZoneManager**: Manages light zones and their configuration
 - **LightController**: Controls actual light state changes
 - **ManualChangeDetector**: Detects manual interventions vs. automated changes
 
-This modular design makes the codebase maintainable and testable.
+The base classes (`base_coordinator.py`) are independent of Home Assistant and can be reused by standalone tools like the simulation server.
+
+This modular design makes the codebase maintainable, testable, and reusable.
 
 ### Understanding Brightness Curves
 
