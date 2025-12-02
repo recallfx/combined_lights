@@ -18,11 +18,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION, DOMAIN
-
-# Load version from manifest.json to keep it in sync
-_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
-_VERSION = json.loads(_MANIFEST_PATH.read_text()).get("version", "unknown")
-
 from .helpers import (
     BrightnessCalculator,
     LightController,
@@ -31,6 +26,10 @@ from .helpers import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Load version from manifest.json to keep it in sync
+_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
+_VERSION = json.loads(_MANIFEST_PATH.read_text()).get("version", "unknown")
 
 
 async def async_setup_entry(
