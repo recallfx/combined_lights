@@ -136,11 +136,23 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Store basic configuration
-            self._config_data.update(user_input)
+            # Validate that at least one light is configured
+            all_lights = (
+                user_input.get(CONF_STAGE_1_LIGHTS, [])
+                + user_input.get(CONF_STAGE_2_LIGHTS, [])
+                + user_input.get(CONF_STAGE_3_LIGHTS, [])
+                + user_input.get(CONF_STAGE_4_LIGHTS, [])
+            )
+            if not all_lights:
+                errors["base"] = "no_lights_selected"
+            elif len(all_lights) != len(set(all_lights)):
+                errors["base"] = "duplicate_lights"
+            else:
+                # Store basic configuration
+                self._config_data.update(user_input)
 
-            # Proceed to curve configuration
-            return await self.async_step_curves()
+                # Proceed to curve configuration
+                return await self.async_step_curves()
 
         # Use utility function to create schema
         data_schema = create_basic_schema()
@@ -200,11 +212,23 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
-            # Store basic configuration for reconfiguration
-            self._config_data = {**config_entry.data, **user_input}
+            # Validate that at least one light is configured
+            all_lights = (
+                user_input.get(CONF_STAGE_1_LIGHTS, [])
+                + user_input.get(CONF_STAGE_2_LIGHTS, [])
+                + user_input.get(CONF_STAGE_3_LIGHTS, [])
+                + user_input.get(CONF_STAGE_4_LIGHTS, [])
+            )
+            if not all_lights:
+                errors["base"] = "no_lights_selected"
+            elif len(all_lights) != len(set(all_lights)):
+                errors["base"] = "duplicate_lights"
+            else:
+                # Store basic configuration for reconfiguration
+                self._config_data = {**config_entry.data, **user_input}
 
-            # Proceed to curve configuration
-            return await self.async_step_reconfigure_curves()
+                # Proceed to curve configuration
+                return await self.async_step_reconfigure_curves()
 
         # Use utility function to create schema with current values as defaults
         data_schema = create_basic_schema(config_entry.data)

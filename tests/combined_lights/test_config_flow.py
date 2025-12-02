@@ -42,6 +42,54 @@ class TestCombinedLightsConfigFlow:
         assert result["errors"] == {}
         assert result["step_id"] == "user"
 
+    async def test_form_rejects_empty_lights(self, hass: HomeAssistant) -> None:
+        """Test that the form rejects configuration with no lights selected."""
+        # Start with user step
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+
+        # Try to complete user step with no lights
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Empty Combined Lights",
+                CONF_STAGE_1_LIGHTS: [],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+            },
+        )
+
+        # Should stay on the same form with an error
+        assert result2["type"] is FlowResultType.FORM
+        assert result2["step_id"] == "user"
+        assert result2["errors"] == {"base": "no_lights_selected"}
+
+    async def test_form_rejects_duplicate_lights(self, hass: HomeAssistant) -> None:
+        """Test that the form rejects configuration with duplicate lights across stages."""
+        # Start with user step
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+
+        # Try to complete user step with duplicate light in two stages
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Duplicate Lights Test",
+                CONF_STAGE_1_LIGHTS: ["light.living_room"],
+                CONF_STAGE_2_LIGHTS: ["light.living_room"],  # Duplicate!
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+            },
+        )
+
+        # Should stay on the same form with an error
+        assert result2["type"] is FlowResultType.FORM
+        assert result2["step_id"] == "user"
+        assert result2["errors"] == {"base": "duplicate_lights"}
+
     async def test_full_flow_with_defaults(self, hass: HomeAssistant) -> None:
         """Test full config flow with default curves."""
         # Start with user step

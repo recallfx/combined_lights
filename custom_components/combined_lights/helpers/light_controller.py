@@ -40,10 +40,11 @@ class LightController:
         brightness_value = int(brightness_pct / 100.0 * 255)
         expected_states = {}
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "LightController.turn_on_lights: brightness_pct=%.1f%%, brightness_value=%d, entities=%s",
             brightness_pct,
             brightness_value,
+            light_entities,
         )
 
         for entity_id in light_entities:
