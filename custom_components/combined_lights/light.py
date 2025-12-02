@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Any
 import uuid
 
@@ -16,6 +18,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION, DOMAIN
+
+# Load version from manifest.json to keep it in sync
+_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
+_VERSION = json.loads(_MANIFEST_PATH.read_text()).get("version", "unknown")
+
 from .helpers import (
     BrightnessCalculator,
     LightController,
@@ -57,7 +64,7 @@ class CombinedLight(LightEntity, RestoreEntity):
             name=entry.data.get("name", "Combined Lights"),
             manufacturer="Combined Lights",
             model="Virtual Light Controller",
-            sw_version="2.7.0",
+            sw_version=_VERSION,
         )
 
         # Helper instances
