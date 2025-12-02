@@ -320,6 +320,35 @@ Each stage can use a different curve type to control how it brightens:
   - Example: 50% progress = 79% brightness
   - **Use case**: Work lights, areas needing immediate high brightness
 
+## Development
+
+### Running the Interactive Visualizer
+
+The infographic visualizer is a static site. Serve it with any HTTP server:
+
+```bash
+cd infographic
+python -m http.server 8080
+```
+
+Then open http://localhost:8080 in your browser.
+
+### Running the Simulation Server
+
+The simulation server provides a WebSocket-based testing environment:
+
+```bash
+uv run python simulation/run_server.py
+```
+
+Open http://localhost:8091 to access the simulation UI. Use `--port` and `--breakpoints` to customize.
+
+### Running Tests
+
+```bash
+uv run pytest tests/
+```
+
 ## Contributing
 
 Contributions are welcome! Please check the [issues page](https://github.com/recallfx/combined_lights/issues) for known issues or feature requests.
@@ -335,6 +364,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Version History
 
+- **2.8.0**: Added RestoreEntity support for state persistence, DeviceInfo for UI grouping, improved entity availability, hardened config flow validation, and base coordinator abstraction for reuse
 - **2.7.0**: Added interactive visualizer, new brightness curves (Square, Cube), and documentation improvements
 - **2.6.0**: Simplified configuration by removing advanced breakpoint flow and migration
 - **2.5.0**: Removed explicit brightness range configuration in favor of intelligent defaults

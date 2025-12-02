@@ -248,6 +248,120 @@ class TestCombinedLightsConfigFlow:
         assert result3["reason"] == "reconfigure_successful"
         assert config_entry.data[CONF_STAGE_1_CURVE] == CURVE_QUADRATIC
 
+    async def test_reconfigure_rejects_empty_lights(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test that reconfigure rejects configuration with no lights."""
+        # Create a mock config entry
+        config_entry = ConfigEntry(
+            version=1,
+            minor_version=0,
+            domain=DOMAIN,
+            title="Existing Combined Lights",
+            data={
+                CONF_NAME: "Existing Combined Lights",
+                CONF_STAGE_1_LIGHTS: ["light.old_stage1"],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+                CONF_BREAKPOINTS: DEFAULT_BREAKPOINTS,
+                CONF_STAGE_1_CURVE: DEFAULT_STAGE_1_CURVE,
+                CONF_STAGE_2_CURVE: DEFAULT_STAGE_2_CURVE,
+                CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
+                CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
+                CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+            },
+            options={},
+            entry_id=str(uuid4()),
+            source=config_entries.SOURCE_USER,
+            unique_id=None,
+            discovery_keys=set(),
+        )
+
+        hass.config_entries._entries[config_entry.entry_id] = config_entry
+
+        # Start reconfigure flow
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": config_entry.entry_id,
+            },
+        )
+
+        # Try to submit with no lights
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Empty Config",
+                CONF_STAGE_1_LIGHTS: [],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+            },
+        )
+
+        assert result2["type"] is FlowResultType.FORM
+        assert result2["step_id"] == "reconfigure"
+        assert result2["errors"] == {"base": "no_lights_selected"}
+
+    async def test_reconfigure_rejects_duplicate_lights(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test that reconfigure rejects configuration with duplicate lights."""
+        # Create a mock config entry
+        config_entry = ConfigEntry(
+            version=1,
+            minor_version=0,
+            domain=DOMAIN,
+            title="Existing Combined Lights",
+            data={
+                CONF_NAME: "Existing Combined Lights",
+                CONF_STAGE_1_LIGHTS: ["light.old_stage1"],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+                CONF_BREAKPOINTS: DEFAULT_BREAKPOINTS,
+                CONF_STAGE_1_CURVE: DEFAULT_STAGE_1_CURVE,
+                CONF_STAGE_2_CURVE: DEFAULT_STAGE_2_CURVE,
+                CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
+                CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
+                CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+            },
+            options={},
+            entry_id=str(uuid4()),
+            source=config_entries.SOURCE_USER,
+            unique_id=None,
+            discovery_keys=set(),
+        )
+
+        hass.config_entries._entries[config_entry.entry_id] = config_entry
+
+        # Start reconfigure flow
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": config_entry.entry_id,
+            },
+        )
+
+        # Try to submit with duplicate lights
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_NAME: "Duplicate Config",
+                CONF_STAGE_1_LIGHTS: ["light.living_room"],
+                CONF_STAGE_2_LIGHTS: ["light.living_room"],  # Duplicate!
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+            },
+        )
+
+        assert result2["type"] is FlowResultType.FORM
+        assert result2["step_id"] == "reconfigure"
+        assert result2["errors"] == {"base": "duplicate_lights"}
+
 
 class TestConfigFlowSchemas:
     """Test config flow schema creation."""
