@@ -1,6 +1,6 @@
 """Test the Combined Lights light platform."""
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from homeassistant.components.light import ColorMode
@@ -56,9 +56,41 @@ class TestCombinedLight:
         assert combined_light._attr_supported_color_modes == {ColorMode.BRIGHTNESS}
         assert combined_light._attr_color_mode == ColorMode.BRIGHTNESS
 
-    def test_available(self, combined_light: CombinedLight) -> None:
-        """Test entity availability."""
+    def test_available_with_available_lights(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
+        """Test entity availability when member lights are available."""
+        combined_light.hass = hass
+        
+        # Set up at least one available light
+        hass.states.async_set("light.stage1_1", "on", {"brightness": 128})
+        
         assert combined_light.available is True
+
+    def test_available_with_all_unavailable_lights(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
+        """Test entity availability when all member lights are unavailable."""
+        combined_light.hass = hass
+        
+        # Set all lights to unavailable
+        hass.states.async_set("light.stage1_1", "unavailable")
+        hass.states.async_set("light.stage1_2", "unavailable")
+        hass.states.async_set("light.stage2_1", "unavailable")
+        hass.states.async_set("light.stage4_1", "unavailable")
+        
+        assert combined_light.available is False
+
+    def test_available_without_hass(self, combined_light: CombinedLight) -> None:
+        """Test entity availability when hass is not set."""
+        combined_light.hass = None
+        assert combined_light.available is False
+
+    def test_device_info(self, combined_light: CombinedLight) -> None:
+        """Test that device_info is properly set."""
+        assert combined_light._attr_device_info is not None
+        assert combined_light._attr_device_info["manufacturer"] == "Combined Lights"
+        assert combined_light._attr_device_info["model"] == "Virtual Light Controller"
 
     def test_get_stage_from_brightness(self, combined_light: CombinedLight) -> None:
         """Test determining stage from brightness percentage."""
@@ -232,3 +264,114 @@ class TestCombinedLight:
         }
 
         assert entity_attributes == snapshot
+
+
+class TestBrightnessEdgeCases:
+    """Test brightness behavior at edge cases and breakpoints."""
+
+    @pytest.fixture
+    def combined_light(self, mock_config_entry_advanced) -> CombinedLight:
+        """Create a CombinedLight instance with default config."""
+        return CombinedLight(mock_config_entry_advanced)
+
+    @pytest.mark.asyncio
+    async def test_brightness_at_zero_turns_off(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
+        """Test that 0% brightness turns off the light."""
+        combined_light.hass = hass
+        combined_light.async_write_ha_state = MagicMock()
+        
+        # Set up lights as on
+        hass.states.async_set("light.stage1_1", "on", {"brightness": 128})
+        
+        # Mock the light controller
+        combined_light._light_controller = AsyncMock()
+        combined_light._light_controller.turn_on_lights = AsyncMock(return_value={})
+        combined_light._light_controller.turn_off_lights = AsyncMock(return_value={})
+        
+        await combined_light.async_turn_on(brightness=0)
+        
+        # With 0 brightness, turn_off should be called
+        combined_light._light_controller.turn_off_lights.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_brightness_at_breakpoint_1(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
+        """Test brightness exactly at breakpoint 1 (30%)."""
+        combined_light.hass = hass
+        combined_light.async_write_ha_state = MagicMock()
+        
+        # Breakpoint 1 is 30% = 76.5 brightness
+        brightness_30_percent = int(255 * 0.30)  # 76
+        
+        # Mock the light controller
+        combined_light._light_controller = AsyncMock()
+        combined_light._light_controller.turn_on_lights = AsyncMock(return_value={})
+        combined_light._light_controller.turn_off_lights = AsyncMock(return_value={})
+        
+        await combined_light.async_turn_on(brightness=brightness_30_percent)
+        
+        # At 30%, stage 1 should be at 100%
+        combined_light._light_controller.turn_on_lights.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_brightness_at_breakpoint_2(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
+        """Test brightness exactly at breakpoint 2 (60%)."""
+        combined_light.hass = hass
+        combined_light.async_write_ha_state = MagicMock()
+        
+        # Breakpoint 2 is 60% = 153 brightness
+        brightness_60_percent = int(255 * 0.60)  # 153
+        
+        # Mock the light controller
+        combined_light._light_controller = AsyncMock()
+        combined_light._light_controller.turn_on_lights = AsyncMock(return_value={})
+        combined_light._light_controller.turn_off_lights = AsyncMock(return_value={})
+        
+        await combined_light.async_turn_on(brightness=brightness_60_percent)
+        
+        # At 60%, stages 1-2 should be on
+        combined_light._light_controller.turn_on_lights.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_brightness_at_breakpoint_3(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
+        """Test brightness exactly at breakpoint 3 (90%)."""
+        combined_light.hass = hass
+        combined_light.async_write_ha_state = MagicMock()
+        
+        # Breakpoint 3 is 90% = 229.5 brightness
+        brightness_90_percent = int(255 * 0.90)  # 229
+        
+        # Mock the light controller
+        combined_light._light_controller = AsyncMock()
+        combined_light._light_controller.turn_on_lights = AsyncMock(return_value={})
+        combined_light._light_controller.turn_off_lights = AsyncMock(return_value={})
+        
+        await combined_light.async_turn_on(brightness=brightness_90_percent)
+        
+        # At 90%, stages 1-3 should be on
+        combined_light._light_controller.turn_on_lights.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_brightness_at_100_percent(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
+        """Test brightness at 100%."""
+        combined_light.hass = hass
+        combined_light.async_write_ha_state = MagicMock()
+        
+        # Mock the light controller
+        combined_light._light_controller = AsyncMock()
+        combined_light._light_controller.turn_on_lights = AsyncMock(return_value={})
+        combined_light._light_controller.turn_off_lights = AsyncMock(return_value={})
+        
+        await combined_light.async_turn_on(brightness=255)
+        
+        # At 100%, all stages should be on
+        combined_light._light_controller.turn_on_lights.assert_called()

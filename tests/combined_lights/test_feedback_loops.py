@@ -44,8 +44,8 @@ async def test_context_clobbering_race_condition(
     await hass.async_block_till_done()
 
     # Get the entity instance
-    # The entity_id is likely light.combined_test based on the name "Combined Test"
-    entity_id = "light.combined_test"
+    # The entity_id is light.combined_test_combined_test based on the unique_id pattern
+    entity_id = "light.combined_test_combined_test"
 
     # Retrieve the instance from the entity component
     component = hass.data.get("entity_components", {}).get("light")

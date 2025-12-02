@@ -11,9 +11,11 @@ from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEnti
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import Context, Event, HomeAssistant, callback
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
+from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION, DOMAIN
 from .helpers import (
     BrightnessCalculator,
     LightController,
@@ -34,8 +36,10 @@ async def async_setup_entry(
     async_add_entities([CombinedLight(entry)], True)
 
 
-class CombinedLight(LightEntity):
+class CombinedLight(LightEntity, RestoreEntity):
     """Combined Light entity that controls multiple light zones."""
+
+    _attr_has_entity_name = True
 
     def __init__(self, entry: ConfigEntry) -> None:
         """Initialize the Combined Light."""
@@ -46,6 +50,15 @@ class CombinedLight(LightEntity):
         self._attr_brightness = 255
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         self._attr_color_mode = ColorMode.BRIGHTNESS
+
+        # Device info for UI grouping
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=entry.data.get("name", "Combined Lights"),
+            manufacturer="Combined Lights",
+            model="Virtual Light Controller",
+            sw_version="2.7.0",
+        )
 
         # Helper instances
         self._brightness_calc = BrightnessCalculator(entry)
@@ -68,6 +81,17 @@ class CombinedLight(LightEntity):
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant."""
         await super().async_added_to_hass()
+
+        # Restore previous state if available
+        if (last_state := await self.async_get_last_state()) is not None:
+            if last_state.state == "on":
+                self._attr_is_on = True
+                if (brightness := last_state.attributes.get("brightness")) is not None:
+                    self._target_brightness = brightness
+                    self._target_brightness_initialized = True
+                    _LOGGER.debug(
+                        "Restored brightness from last state: %s", brightness
+                    )
 
         # Initialize light controller with hass instance
         self._light_controller = LightController(self.hass)
@@ -242,8 +266,17 @@ class CombinedLight(LightEntity):
 
     @property
     def available(self) -> bool:
-        """Return if entity is available."""
-        return True
+        """Return if entity is available (at least one member light is available)."""
+        if not self.hass:
+            return False
+        all_lights = self._zone_manager.get_all_lights()
+        if not all_lights:
+            return False
+        for entity_id in all_lights:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state not in ("unavailable", "unknown"):
+                return True
+        return False
 
     @property
     def is_on(self) -> bool:
