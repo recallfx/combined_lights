@@ -360,19 +360,6 @@ class HACombinedLightsCoordinator:
         Returns:
             Dict mapping entity_id to new brightness value
         """
-        # If the system is off, back-propagation should ensure everything is off
-        if not self._is_on:
-            changes: dict[str, int] = {}
-            for light in self._lights.values():
-                if light.entity_id == exclude_entity_id:
-                    continue
-                # Only include if it needs to be turned off
-                if light.is_on or light.brightness > 0:
-                    light.is_on = False
-                    light.brightness = 0
-                    changes[light.entity_id] = 0
-            return changes
-
         zone_brightness = self.calculate_all_zone_brightness()
         changes: dict[str, int] = {}
 

@@ -95,9 +95,6 @@ class CombinedLight(LightEntity, RestoreEntity):
             CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
         )
         self._back_prop_task: asyncio.Task | None = None
-        self._pending_manual_changes: dict[str, int] = {}  # entity_id -> brightness
-        self._manual_change_window = 0.15  # seconds to collect grouped changes
-        self._manual_change_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
     def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
@@ -192,117 +189,44 @@ class CombinedLight(LightEntity, RestoreEntity):
                 )
 
     def _handle_manual_change(self, entity_id: str) -> None:
-        """Handle a manual light change using the coordinator.
-        
-        Collects manual changes within a short window to detect patterns like
-        KNX "all off" button that sends off to multiple lights simultaneously.
-        """
+        """Handle a manual light change using the coordinator."""
         if not self.hass:
             return
 
-        # Get the current brightness for this entity
+        # Skip if we're currently updating
+        if self._manual_detector._updating_lights:
+            _LOGGER.debug("Skipping manual change handling while updating")
+            return
+
+        # Get the new brightness from HA state
         state = self.hass.states.get(entity_id)
         if state is None:
             return
-        
+
         if state.state == "on":
             brightness = state.attributes.get("brightness", 255) or 255
         else:
             brightness = 0
 
-        # Track this manual change
-        self._pending_manual_changes[entity_id] = brightness
-        _LOGGER.debug(
-            "Manual change queued: %s -> %d (pending: %d changes)",
-            entity_id,
-            brightness,
-            len(self._pending_manual_changes),
-        )
-
-        # Cancel any pending processing - we'll restart the timer
-        if self._manual_change_task and not self._manual_change_task.done():
-            self._manual_change_task.cancel()
-
-        # Schedule processing after the collection window
-        self._manual_change_task = self.hass.async_create_task(
-            self._async_process_manual_changes()
-        )
-
-    async def _async_process_manual_changes(self) -> None:
-        """Process collected manual changes after the collection window.
-        
-        This allows us to detect patterns like "all lights turned off" which
-        should result in turning off the combined light without back-propagation.
-        """
-        try:
-            # Wait for more changes to arrive
-            await asyncio.sleep(self._manual_change_window)
-        except asyncio.CancelledError:
-            # More changes came in, this task was cancelled
-            return
-
-        # Snapshot and clear pending changes
-        changes = self._pending_manual_changes.copy()
-        self._pending_manual_changes.clear()
-
-        if not changes:
-            return
-
-        # Analyze the pattern of changes
-        all_controlled_lights = set(self._coordinator._lights.keys())
-        changed_lights = set(changes.keys())
-        all_off = all(b == 0 for b in changes.values())
-        
-        _LOGGER.debug(
-            "Processing %d manual changes: %s (all_off=%s)",
-            len(changes),
-            changes,
-            all_off,
-        )
-
-        # Sync coordinator state from HA
+        # Sync all lights from HA first so coordinator knows current state
+        # This is critical for correct estimation when a light is turned off
         self._coordinator.sync_all_lights_from_ha()
 
-        # Case 1: All controlled lights were turned off
-        if all_off and changed_lights == all_controlled_lights:
-            _LOGGER.info("Manual change: all lights turned off simultaneously")
-            self._coordinator.turn_off()
-            self.async_schedule_update_ha_state()
-            return
-
-        # Case 2: All lights are now off (even if only some were in this batch)
-        if not self._coordinator.is_on:
-            _LOGGER.info("Manual change: all lights now off")
-            self._coordinator.turn_off()
-            self.async_schedule_update_ha_state()
-            return
-
-        # Case 3: Some lights still on - estimate overall brightness
-        overall_pct = self._coordinator._estimate_overall_from_current_lights()
-        
-        if overall_pct > 0:
-            self._coordinator._target_brightness = max(
-                1, min(255, int(overall_pct / 100 * 255))
-            )
-            self._coordinator._is_on = True
+        # Use coordinator to handle the change - same logic as simulation
+        overall_pct, back_prop_changes = self._coordinator.handle_manual_light_change(
+            entity_id, brightness
+        )
 
         _LOGGER.info(
-            "Manual change settled: %d changes, new overall brightness %.1f%%",
-            len(changes),
+            "Manual change: %s -> %d, new overall: %.1f%%",
+            entity_id,
+            brightness,
             overall_pct,
         )
 
-        # Back-propagate if enabled, but exclude manually changed lights
-        # to preserve the user's intent
-        if self._back_propagation_enabled:
-            back_prop_changes = self._coordinator.apply_back_propagation()
-            # Remove manually changed lights from back-propagation
-            for entity_id in changed_lights:
-                back_prop_changes.pop(entity_id, None)
-            if back_prop_changes:
-                self._schedule_back_propagation(back_prop_changes, None)
-
-        self.async_schedule_update_ha_state()
+        # Schedule back-propagation if enabled
+        if self._back_propagation_enabled and back_prop_changes:
+            self._schedule_back_propagation(back_prop_changes, entity_id)
 
     async def async_will_remove_from_hass(self) -> None:
         """Entity removed from Home Assistant."""
@@ -310,8 +234,6 @@ class CombinedLight(LightEntity, RestoreEntity):
             self._remove_listener()
         if self._back_prop_task and not self._back_prop_task.done():
             self._back_prop_task.cancel()
-        if self._manual_change_task and not self._manual_change_task.done():
-            self._manual_change_task.cancel()
         await super().async_will_remove_from_hass()
 
     @property
@@ -422,53 +344,58 @@ class CombinedLight(LightEntity, RestoreEntity):
         Returns:
             True if at least one light was successfully controlled
         """
+        self._manual_detector.set_updating_flag(True)
         any_success = False
 
-        # Group by brightness for efficient service calls
-        lights_on: dict[int, list[str]] = {}
-        lights_off: list[str] = []
+        try:
+            # Group by brightness for efficient service calls
+            lights_on: dict[int, list[str]] = {}
+            lights_off: list[str] = []
 
-        for entity_id, brightness in changes.items():
-            if brightness > 0:
-                if brightness not in lights_on:
-                    lights_on[brightness] = []
-                lights_on[brightness].append(entity_id)
-            else:
-                lights_off.append(entity_id)
+            for entity_id, brightness in changes.items():
+                if brightness > 0:
+                    if brightness not in lights_on:
+                        lights_on[brightness] = []
+                    lights_on[brightness].append(entity_id)
+                else:
+                    lights_off.append(entity_id)
 
-        # Turn on lights grouped by brightness
-        for brightness, entities in lights_on.items():
-            # Track expected states BEFORE service call
-            for entity_id in entities:
-                self._manual_detector.track_expected_state(entity_id, brightness)
-
-            try:
-                brightness_pct = brightness / 255.0 * 100
-                result = await self._light_controller.turn_on_lights(
-                    entities, brightness_pct, context
-                )
-                if result:
-                    any_success = True
-            except Exception as err:
-                _LOGGER.error("Failed to turn on lights %s: %s", entities, err)
+            # Turn on lights grouped by brightness
+            for brightness, entities in lights_on.items():
+                # Track expected states BEFORE service call
                 for entity_id in entities:
-                    self._manual_detector.cleanup_expected_state(entity_id)
+                    self._manual_detector.track_expected_state(entity_id, brightness)
 
-        # Turn off lights
-        if lights_off:
-            for entity_id in lights_off:
-                self._manual_detector.track_expected_state(entity_id, 0)
+                try:
+                    brightness_pct = brightness / 255.0 * 100
+                    result = await self._light_controller.turn_on_lights(
+                        entities, brightness_pct, context
+                    )
+                    if result:
+                        any_success = True
+                except Exception as err:
+                    _LOGGER.error("Failed to turn on lights %s: %s", entities, err)
+                    for entity_id in entities:
+                        self._manual_detector.cleanup_expected_state(entity_id)
 
-            try:
-                result = await self._light_controller.turn_off_lights(
-                    lights_off, context
-                )
-                if result:
-                    any_success = True
-            except Exception as err:
-                _LOGGER.error("Failed to turn off lights %s: %s", lights_off, err)
+            # Turn off lights
+            if lights_off:
                 for entity_id in lights_off:
-                    self._manual_detector.cleanup_expected_state(entity_id)
+                    self._manual_detector.track_expected_state(entity_id, 0)
+
+                try:
+                    result = await self._light_controller.turn_off_lights(
+                        lights_off, context
+                    )
+                    if result:
+                        any_success = True
+                except Exception as err:
+                    _LOGGER.error("Failed to turn off lights %s: %s", lights_off, err)
+                    for entity_id in lights_off:
+                        self._manual_detector.cleanup_expected_state(entity_id)
+
+        finally:
+            self._manual_detector.set_updating_flag(False)
 
         return any_success
 

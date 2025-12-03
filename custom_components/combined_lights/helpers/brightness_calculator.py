@@ -123,11 +123,6 @@ class BrightnessCalculator:
     ) -> float:
         """Estimate overall brightness from current zone brightness values.
 
-        This handles unusual states where higher stages are on but lower stages
-        are off. In the progressive model, if Stage 3 is off, overall brightness
-        must be below 60% (Stage 3's activation point), so Stage 4 should also
-        be off.
-
         Args:
             zone_brightness: Dict mapping stage number (1-4) to current
                            brightness percentage (0-100), or None if off.
@@ -135,11 +130,7 @@ class BrightnessCalculator:
         Returns:
             Estimated overall brightness percentage (0-100)
         """
-        breakpoints = self.get_breakpoints()  # e.g., [30, 60, 90]
-
-        # Find the lowest stage that is OFF but has a higher stage that's ON
-        # This indicates an inconsistent state that we need to respect
-        lowest_off_stage_with_higher_on: int | None = None
+        # Find the highest active stage
         highest_active_stage = 0
         highest_stage_brightness = 0.0
 
@@ -149,28 +140,8 @@ class BrightnessCalculator:
                 highest_active_stage = stage
                 highest_stage_brightness = brightness
 
-        # Check for "gaps" - if a lower stage is off but a higher stage is on,
-        # the user manually turned off the lower stage
-        for stage in range(1, highest_active_stage):
-            brightness = zone_brightness.get(stage)
-            if brightness is None or brightness == 0:
-                lowest_off_stage_with_higher_on = stage
-                break
-
         if highest_active_stage == 0:
             return 0.0
-
-        # If there's a gap (lower stage off, higher on), cap overall brightness
-        # to just below the off stage's activation point
-        if lowest_off_stage_with_higher_on is not None:
-            if lowest_off_stage_with_higher_on == 1:
-                # Stage 1 is off but higher stages on - shouldn't happen normally
-                # Cap to 0 since Stage 1 is always supposed to be on
-                return 0.0
-            # Cap to just below the activation point of the off stage
-            # Stage 2 activates at breakpoints[0] (30), Stage 3 at [1] (60), etc.
-            activation_point = breakpoints[lowest_off_stage_with_higher_on - 2]
-            return max(0.0, activation_point - 1)
 
         return self._reverse_stage_brightness(
             highest_active_stage, highest_stage_brightness

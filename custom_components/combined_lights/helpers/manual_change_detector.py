@@ -6,25 +6,14 @@ from homeassistant.core import Context, Event
 
 
 class ManualChangeDetector:
-    """Detects manual interventions in light states.
-
-    Detection strategy:
-    1. Context match: If the event context matches one we created, it's our change.
-    2. Expected state: If context doesn't match but brightness matches expectation,
-       it's likely our change propagated through another integration (e.g., KNX).
-    3. Otherwise: It's a manual/external change.
-
-    The key insight is that slow-responding lights (KNX, etc.) don't need timeouts.
-    With blocking=True service calls, HA waits for state settlement. Any events
-    during that time with our context are ours; events with external contexts
-    but matching our expected brightness are also ours.
-    """
+    """Detects manual interventions in light states."""
 
     def __init__(self):
         """Initialize the manual change detector."""
         self._recent_contexts: list[str] = []
-        self._max_recent_contexts = 10
-        self._expected_states: dict[str, int] = {}  # entity_id -> expected brightness
+        self._max_recent_contexts = 5
+        self._expected_states: dict[str, int] = {}
+        self._updating_lights = False
         self._brightness_tolerance = 5
 
     def add_integration_context(self, context: Context) -> None:
@@ -34,6 +23,10 @@ class ManualChangeDetector:
             # Keep only the last N contexts
             if len(self._recent_contexts) > self._max_recent_contexts:
                 self._recent_contexts.pop(0)
+
+    def set_updating_flag(self, updating: bool) -> None:
+        """Set the updating flag."""
+        self._updating_lights = updating
 
     def track_expected_state(self, entity_id: str, expected_brightness: int) -> None:
         """Track expected state for an entity."""
@@ -54,47 +47,52 @@ class ManualChangeDetector:
             new_state.attributes.get("brightness") if new_state else None
         )
         expected_brightness = self._expected_states.get(entity_id)
-        is_our_context = (
-            event.context and event.context.id in self._recent_contexts
+        context_is_external = (
+            event.context and event.context.id not in self._recent_contexts
         )
 
-        # Priority 1: Context match - definitely our change
-        if is_our_context:
-            # Clear expectation since we got a response
-            self._expected_states.pop(entity_id, None)
+        # If the event comes from one of our recent contexts, it's not manual
+        if event.context and event.context.id in self._recent_contexts:
+            # Even if brightness doesn't match (e.g. race condition or ramp up),
+            # we know this change was triggered by us.
+            if expected_brightness is not None:
+                del self._expected_states[entity_id]
             return False, "recent_context_match"
 
-        # Priority 2: Check expected state (for integrations that use their own context)
+        # Check if we have an expectation for this entity
         if expected_brightness is not None:
-            # Handle "off" state
-            if new_state and new_state.state == "off":
-                if expected_brightness == 0:
-                    del self._expected_states[entity_id]
-                    return False, "expected_off_state"
-                else:
-                    # Expected on, but got off - manual turn off
-                    del self._expected_states[entity_id]
-                    return True, "unexpected_off"
+            # Handle "off" state specially
+            if new_state and new_state.state == "off" and expected_brightness == 0:
+                del self._expected_states[entity_id]
+                return False, "expected_off_state"
 
-            # Check brightness match
+            # Check brightness match within tolerance
             if actual_brightness is not None:
                 brightness_diff = abs(actual_brightness - expected_brightness)
                 if brightness_diff <= self._brightness_tolerance:
-                    # Matches expectation - our change propagated
+                    # Matches expectation
                     del self._expected_states[entity_id]
                     return False, "expected_brightness_match"
                 else:
-                    # Brightness mismatch - manual change
+                    # Brightness doesn't match - this is manual
                     del self._expected_states[entity_id]
                     return True, "brightness_mismatch"
-
-            # State is "on" but no brightness attribute - assume match if we expected on
-            if new_state and new_state.state == "on" and expected_brightness > 0:
+            else:
+                # No brightness attribute but we expected one
                 del self._expected_states[entity_id]
-                return False, "expected_on_state"
+                return True, "brightness_mismatch"
 
-        # No expectation and not our context - manual change
-        return True, "external_context"
+        # No expectation set - check if we're currently updating
+        if self._updating_lights and not context_is_external:
+            # Integration is updating but no expectation was tracked
+            return False, "integration_updating"
+
+        # Check context
+        if context_is_external:
+            return True, "external_context"
+
+        # No expectation and not our context - likely manual
+        return True, "no_expectation"
 
     def cleanup_expected_state(self, entity_id: str) -> None:
         """Clean up expected state for an entity."""
