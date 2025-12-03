@@ -142,6 +142,72 @@ class TestTransitionalOnState:
         assert is_manual
         assert reason == "external_context"
 
+    def test_pending_brightness_confirmation(self, detector: ManualChangeDetector):
+        """Brightness arriving after transitional on@0 should be manual."""
+        # First event: transitional on@0
+        event1 = create_state_event(
+            "light.test",
+            old_state="off",
+            old_brightness=None,
+            new_state="on",
+            new_brightness=0,
+        )
+
+        is_manual, reason = detector.is_manual_change("light.test", event1)
+        assert not is_manual
+        assert reason == "transitional_on_state"
+        assert "light.test" in detector._pending_brightness
+
+        # Second event: actual brightness arrives
+        event2 = create_state_event(
+            "light.test",
+            old_state="on",
+            old_brightness=0,
+            new_state="on",
+            new_brightness=200,
+        )
+
+        is_manual, reason = detector.is_manual_change("light.test", event2)
+        assert is_manual
+        assert reason == "brightness_confirmation"
+        assert "light.test" not in detector._pending_brightness
+
+    def test_pending_brightness_expires(self, detector: ManualChangeDetector):
+        """Pending brightness should expire after timeout."""
+        import time
+
+        # Set a very short timeout for testing
+        detector._pending_brightness_timeout = 0.01
+
+        # First event: transitional on@0
+        event1 = create_state_event(
+            "light.test",
+            old_state="off",
+            old_brightness=None,
+            new_state="on",
+            new_brightness=0,
+        )
+
+        detector.is_manual_change("light.test", event1)
+        assert "light.test" in detector._pending_brightness
+
+        # Wait for timeout
+        time.sleep(0.02)
+
+        # Second event: brightness arrives late
+        event2 = create_state_event(
+            "light.test",
+            old_state="on",
+            old_brightness=0,
+            new_state="on",
+            new_brightness=200,
+        )
+
+        is_manual, reason = detector.is_manual_change("light.test", event2)
+        # Should still be manual (external context) but not as brightness_confirmation
+        assert is_manual
+        assert reason == "external_context"
+
 
 class TestDebounceQueueing:
     """Test the debounce mechanism for concurrent changes."""

@@ -19,6 +19,9 @@ class ManualChangeDetector:
         self._expected_states: dict[str, int] = {}
         self._updating_lights = False
         self._brightness_tolerance = 5
+        # Track entities waiting for brightness confirmation after on@0 state
+        self._pending_brightness: dict[str, float] = {}  # entity_id -> timestamp
+        self._pending_brightness_timeout = 2.0  # seconds to wait for brightness
 
     def add_integration_context(self, context: Context) -> None:
         """Add an integration context to the recent history."""
@@ -77,8 +80,34 @@ class ManualChangeDetector:
         if (new_state and new_state.state == "on" and 
             (actual_brightness is None or actual_brightness == 0) and
             old_state and old_state.state == "off"):
+            # Track this entity as pending brightness confirmation
+            import time
+            self._pending_brightness[entity_id] = time.time()
             _LOGGER.info("  -> NOT manual (transitional_on_state, waiting for brightness)")
             return False, "transitional_on_state"
+
+        # Check if this is a brightness confirmation for a pending transitional state
+        if entity_id in self._pending_brightness:
+            import time
+            pending_time = self._pending_brightness[entity_id]
+            elapsed = time.time() - pending_time
+            del self._pending_brightness[entity_id]
+            
+            if elapsed <= self._pending_brightness_timeout:
+                # This is the actual brightness arriving after on@0
+                # It's still a manual/external change that should be processed
+                _LOGGER.info(
+                    "  -> MANUAL (brightness_confirmation after %.2fs, brightness=%s)",
+                    elapsed,
+                    actual_brightness,
+                )
+                return True, "brightness_confirmation"
+            else:
+                _LOGGER.info(
+                    "  -> Pending brightness expired (%.2fs > %.2fs)",
+                    elapsed,
+                    self._pending_brightness_timeout,
+                )
 
         # If the event comes from one of our recent contexts, it's not manual
         if context_is_ours:

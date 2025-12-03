@@ -18,11 +18,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
+    CONF_DEBOUNCE_DELAY,
     CONF_ENABLE_BACK_PROPAGATION,
     CONF_STAGE_1_LIGHTS,
     CONF_STAGE_2_LIGHTS,
     CONF_STAGE_3_LIGHTS,
     CONF_STAGE_4_LIGHTS,
+    DEFAULT_DEBOUNCE_DELAY,
     DEFAULT_ENABLE_BACK_PROPAGATION,
     DOMAIN,
 )
@@ -100,7 +102,9 @@ class CombinedLight(LightEntity, RestoreEntity):
         # Debounce state for collecting concurrent external changes
         self._pending_manual_changes: dict[str, dict] = {}
         self._debounce_task: asyncio.Task | None = None
-        self._debounce_delay = 0.15  # 150ms to collect concurrent KNX events
+        self._debounce_delay = entry.data.get(
+            CONF_DEBOUNCE_DELAY, DEFAULT_DEBOUNCE_DELAY
+        )
 
     def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
         """Register all configured lights with the coordinator."""
@@ -246,29 +250,84 @@ class CombinedLight(LightEntity, RestoreEntity):
             [eid.split(".")[-1] for eid in pending.keys()],
         )
 
-        # Check if this looks like an "all off" command
-        all_turning_off = all(
-            change["state"] == "off" or change["brightness"] == 0
-            for change in pending.values()
+        # Sync all lights from HA to get current state first
+        self._coordinator.sync_all_lights_from_ha()
+
+        # Analyze the change pattern
+        turn_off_count = sum(
+            1 for change in pending.values()
+            if change["state"] == "off" or change["brightness"] == 0
+        )
+        total_lights = len(self._coordinator._lights)
+        pending_count = len(pending)
+
+        # Check if all/most lights are turning off (bulk off command)
+        is_bulk_off = (
+            turn_off_count == pending_count and  # All pending changes are turn-offs
+            pending_count >= 2 and  # Multiple lights affected
+            turn_off_count >= total_lights * 0.5  # At least half the lights
         )
 
-        if all_turning_off and len(pending) > 1:
-            _LOGGER.info("Detected concurrent turn-off pattern, syncing from HA first")
-            # Sync all lights from HA to get current state
-            self._coordinator.sync_all_lights_from_ha()
+        # Check actual current state
+        lights_currently_on = sum(
+            1 for light in self._coordinator._lights.values() if light.is_on
+        )
 
-            # Check if all lights are now off
-            any_on = any(light.is_on for light in self._coordinator._lights.values())
-            if not any_on:
+        if is_bulk_off:
+            _LOGGER.info(
+                "Detected bulk turn-off pattern (%d/%d lights turning off)",
+                turn_off_count,
+                total_lights,
+            )
+            
+            if lights_currently_on == 0:
                 _LOGGER.info("All lights are off, skipping back-propagation")
                 self._coordinator._is_on = False
                 self._coordinator._target_brightness = 255  # Reset for next turn on
                 return
+            elif lights_currently_on <= 1:
+                # Only 1 light still on - likely just timing, treat as all off
+                _LOGGER.info(
+                    "Only %d light(s) on after bulk off - treating as full off",
+                    lights_currently_on,
+                )
+                self._coordinator._is_on = False
+                self._coordinator._target_brightness = 255
+                return
 
-        # Process the first change (or most representative one)
-        # For now, just pick one - the coordinator will sync all states anyway
-        entity_id = next(iter(pending.keys()))
+        # Process the most significant change
+        # Prefer the light that changed most recently or has the most impact
+        entity_id = self._select_representative_change(pending)
         self._handle_manual_change(entity_id)
+
+    def _select_representative_change(
+        self, pending: dict[str, dict]
+    ) -> str:
+        """Select the most representative change to process.
+        
+        For turn-on changes, prefer higher stages (more impactful).
+        For turn-off changes, prefer lower stages (less disruptive).
+        """
+        # Separate turn-on and turn-off changes
+        turn_ons = {
+            eid: change for eid, change in pending.items()
+            if change["state"] == "on" and change.get("brightness", 0) > 0
+        }
+        turn_offs = {
+            eid: change for eid, change in pending.items()
+            if change["state"] == "off" or change.get("brightness", 0) == 0
+        }
+
+        # If we have turn-ons, process those (they're more intentional)
+        if turn_ons:
+            # Pick the one with highest brightness
+            return max(
+                turn_ons.keys(),
+                key=lambda eid: turn_ons[eid].get("brightness", 0) or 0
+            )
+        
+        # For turn-offs, pick any one (coordinator will sync all states anyway)
+        return next(iter(pending.keys()))
 
     def _handle_manual_change(self, entity_id: str) -> None:
         """Handle a manual light change using the coordinator."""

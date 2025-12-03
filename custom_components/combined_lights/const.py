@@ -27,6 +27,11 @@ CONF_BREAKPOINTS = "breakpoints"  # [30, 60, 90] - slider positions where zones 
 CONF_ENABLE_BACK_PROPAGATION = "enable_back_propagation"
 DEFAULT_ENABLE_BACK_PROPAGATION = False
 
+# Debounce delay for external state changes (in seconds)
+# Allows concurrent KNX/bus events to be collected before processing
+CONF_DEBOUNCE_DELAY = "debounce_delay"
+DEFAULT_DEBOUNCE_DELAY = 0.15  # 150ms - suitable for most KNX setups
+
 # Brightness curve types
 CURVE_LINEAR = "linear"
 CURVE_QUADRATIC = "quadratic"  # Ease-in - gentle start
