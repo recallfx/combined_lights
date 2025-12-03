@@ -250,53 +250,8 @@ class CombinedLight(LightEntity, RestoreEntity):
             [eid.split(".")[-1] for eid in pending.keys()],
         )
 
-        # Sync all lights from HA to get current state first
-        self._coordinator.sync_all_lights_from_ha()
-
-        # Analyze the change pattern
-        turn_off_count = sum(
-            1 for change in pending.values()
-            if change["state"] == "off" or change["brightness"] == 0
-        )
-        total_lights = len(self._coordinator._lights)
-        pending_count = len(pending)
-
-        # Check if all/most lights are turning off (bulk off command)
-        is_bulk_off = (
-            turn_off_count == pending_count and  # All pending changes are turn-offs
-            pending_count >= 2 and  # Multiple lights affected
-            turn_off_count >= total_lights * 0.5  # At least half the lights
-        )
-
-        # Check actual current state
-        lights_currently_on = sum(
-            1 for light in self._coordinator._lights.values() if light.is_on
-        )
-
-        if is_bulk_off:
-            _LOGGER.info(
-                "Detected bulk turn-off pattern (%d/%d lights turning off)",
-                turn_off_count,
-                total_lights,
-            )
-            
-            if lights_currently_on == 0:
-                _LOGGER.info("All lights are off, skipping back-propagation")
-                self._coordinator._is_on = False
-                self._coordinator._target_brightness = 255  # Reset for next turn on
-                return
-            elif lights_currently_on <= 1:
-                # Only 1 light still on - likely just timing, treat as all off
-                _LOGGER.info(
-                    "Only %d light(s) on after bulk off - treating as full off",
-                    lights_currently_on,
-                )
-                self._coordinator._is_on = False
-                self._coordinator._target_brightness = 255
-                return
-
         # Process the most significant change
-        # Prefer the light that changed most recently or has the most impact
+        # The _handle_manual_change method will filter out turn-ons if it's a turn-off
         entity_id = self._select_representative_change(pending)
         self._handle_manual_change(entity_id)
 
@@ -305,17 +260,13 @@ class CombinedLight(LightEntity, RestoreEntity):
     ) -> str:
         """Select the most representative change to process.
         
-        For turn-on changes, prefer higher stages (more impactful).
-        For turn-off changes, prefer lower stages (less disruptive).
+        For turn-on changes, prefer higher brightness (more impactful).
+        For turn-off changes, pick any one (coordinator will sync all states anyway).
         """
         # Separate turn-on and turn-off changes
         turn_ons = {
             eid: change for eid, change in pending.items()
             if change["state"] == "on" and change.get("brightness", 0) > 0
-        }
-        turn_offs = {
-            eid: change for eid, change in pending.items()
-            if change["state"] == "off" or change.get("brightness", 0) == 0
         }
 
         # If we have turn-ons, process those (they're more intentional)
@@ -344,6 +295,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         if state is None:
             return
 
+        manual_turn_off = False
         if state.state == "on":
             raw_brightness = state.attributes.get("brightness")
             # Handle transitional on@0 state - skip processing
@@ -356,6 +308,7 @@ class CombinedLight(LightEntity, RestoreEntity):
             brightness = raw_brightness
         else:
             brightness = 0
+            manual_turn_off = True
 
         _LOGGER.info(
             "HANDLE manual change: %s state=%s brightness=%d",
@@ -386,6 +339,20 @@ class CombinedLight(LightEntity, RestoreEntity):
             self._back_propagation_enabled,
             {k.split(".")[-1]: v for k, v in back_prop_changes.items()} if back_prop_changes else {},
         )
+
+        # Filter out turn-on changes if user manually turned off a light
+        # User intent is clear: they want less light, not more
+        if manual_turn_off and back_prop_changes:
+            filtered_changes = {
+                eid: bri for eid, bri in back_prop_changes.items()
+                if bri == 0  # Only keep turn-off changes
+            }
+            if len(filtered_changes) < len(back_prop_changes):
+                _LOGGER.info(
+                    "  Filtered out %d turn-on changes (manual turn-off detected)",
+                    len(back_prop_changes) - len(filtered_changes),
+                )
+            back_prop_changes = filtered_changes
 
         # Schedule back-propagation if enabled
         if self._back_propagation_enabled and back_prop_changes:

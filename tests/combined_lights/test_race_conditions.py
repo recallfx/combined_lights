@@ -280,14 +280,14 @@ class TestDebounceQueueing:
         assert first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
 
 
-class TestConcurrentTurnOffPattern:
-    """Test detection of concurrent turn-off patterns (KNX "all off")."""
+class TestManualTurnOffFiltering:
+    """Test that manual turn-off prevents turn-on back-propagation."""
 
-    async def test_all_off_pattern_detected(
+    async def test_manual_turn_off_filters_turn_on_changes(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Concurrent turn-off should be detected and handled specially."""
-        # Set up initial states - all lights on
+        """Manual turn-off should filter out any turn-on back-propagation."""
+        # Set up initial states - all lights on at stage 4
         hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage3", STATE_ON, {"brightness": 255})
@@ -295,26 +295,34 @@ class TestConcurrentTurnOffPattern:
         combined_light._coordinator._is_on = True
         combined_light._coordinator._target_brightness = 255
 
-        # Simulate KNX "all off" - update HA states to off
+        # Simulate manual turn-off of one light (KNX switch)
         hass.states.async_set("light.stage1", STATE_OFF)
-        hass.states.async_set("light.stage2", STATE_OFF)
-        hass.states.async_set("light.stage3", STATE_OFF)
-        hass.states.async_set("light.stage4", STATE_OFF)
 
-        # Queue all off events
-        for entity_id in ["light.stage1", "light.stage2", "light.stage3", "light.stage4"]:
-            event = create_state_event(
-                entity_id, "on", 255, "off", None
-            )
-            combined_light._queue_manual_change(entity_id, event)
+        # Queue the turn-off event
+        event = create_state_event(
+            "light.stage1", "on", 255, "off", None
+        )
+        combined_light._queue_manual_change("light.stage1", event)
 
-        # Process immediately (skip debounce delay for test)
+        # Track if back-propagation was scheduled
+        back_prop_scheduled = False
+        original_schedule = combined_light._schedule_back_propagation
+
+        def mock_schedule(changes, exclude):
+            nonlocal back_prop_scheduled
+            # Should not contain any turn-on changes (brightness > 0)
+            turn_ons = {k: v for k, v in changes.items() if v > 0}
+            if turn_ons:
+                back_prop_scheduled = True
+
+        combined_light._schedule_back_propagation = mock_schedule
+
+        # Process immediately
         combined_light._debounce_delay = 0
         await combined_light._process_pending_manual_changes()
 
-        # Should recognize all-off pattern and not trigger back-propagation
-        # that would turn lights back on
-        assert combined_light._coordinator._is_on is False
+        # Should NOT have scheduled turn-on back-propagation
+        assert not back_prop_scheduled, "Turn-on changes should be filtered out on manual turn-off"
 
 
 class TestHandleManualChangeSkipsTransitional:
