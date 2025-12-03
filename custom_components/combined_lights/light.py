@@ -95,8 +95,9 @@ class CombinedLight(LightEntity, RestoreEntity):
             CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
         )
         self._back_prop_task: asyncio.Task | None = None
+        self._pending_manual_changes: dict[str, int] = {}  # entity_id -> brightness
+        self._manual_change_window = 0.15  # seconds to collect grouped changes
         self._manual_change_task: asyncio.Task | None = None
-        self._manual_change_debounce = 0.15  # seconds to wait for grouped changes
         self._lock = asyncio.Lock()
 
     def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
@@ -193,8 +194,8 @@ class CombinedLight(LightEntity, RestoreEntity):
     def _handle_manual_change(self, entity_id: str) -> None:
         """Handle a manual light change using the coordinator.
         
-        Uses debouncing to handle grouped changes (e.g., KNX "all off" button
-        that sends off to multiple lights simultaneously).
+        Collects manual changes within a short window to detect patterns like
+        KNX "all off" button that sends off to multiple lights simultaneously.
         """
         if not self.hass:
             return
@@ -204,39 +205,84 @@ class CombinedLight(LightEntity, RestoreEntity):
             _LOGGER.debug("Skipping manual change handling while updating")
             return
 
-        # Cancel any pending manual change handling - we'll restart the timer
+        # Get the current brightness for this entity
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return
+        
+        if state.state == "on":
+            brightness = state.attributes.get("brightness", 255) or 255
+        else:
+            brightness = 0
+
+        # Track this manual change
+        self._pending_manual_changes[entity_id] = brightness
+        _LOGGER.debug(
+            "Manual change queued: %s -> %d (pending: %d changes)",
+            entity_id,
+            brightness,
+            len(self._pending_manual_changes),
+        )
+
+        # Cancel any pending processing - we'll restart the timer
         if self._manual_change_task and not self._manual_change_task.done():
             self._manual_change_task.cancel()
 
-        # Schedule debounced handling
+        # Schedule processing after the collection window
         self._manual_change_task = self.hass.async_create_task(
-            self._async_handle_manual_change_debounced()
+            self._async_process_manual_changes()
         )
 
-    async def _async_handle_manual_change_debounced(self) -> None:
-        """Handle manual changes after debounce period.
+    async def _async_process_manual_changes(self) -> None:
+        """Process collected manual changes after the collection window.
         
-        Waits for grouped changes to settle, then syncs all lights from HA
-        and reacts to the combined state.
+        This allows us to detect patterns like "all lights turned off" which
+        should result in turning off the combined light without back-propagation.
         """
         try:
-            # Wait for more changes to settle
-            await asyncio.sleep(self._manual_change_debounce)
+            # Wait for more changes to arrive
+            await asyncio.sleep(self._manual_change_window)
         except asyncio.CancelledError:
-            # Another change came in, this task was cancelled
+            # More changes came in, this task was cancelled
             return
 
-        # Now sync all lights from HA to get the settled state
+        # Snapshot and clear pending changes
+        changes = self._pending_manual_changes.copy()
+        self._pending_manual_changes.clear()
+
+        if not changes:
+            return
+
+        # Analyze the pattern of changes
+        all_controlled_lights = set(self._coordinator._lights.keys())
+        changed_lights = set(changes.keys())
+        all_off = all(b == 0 for b in changes.values())
+        
+        _LOGGER.debug(
+            "Processing %d manual changes: %s (all_off=%s)",
+            len(changes),
+            changes,
+            all_off,
+        )
+
+        # Sync coordinator state from HA
         self._coordinator.sync_all_lights_from_ha()
 
-        # If everything is off, just turn off - no back-propagation needed
-        if not self._coordinator.is_on:
-            _LOGGER.info("Manual change: all lights off, turning combined light off")
+        # Case 1: All controlled lights were turned off
+        if all_off and changed_lights == all_controlled_lights:
+            _LOGGER.info("Manual change: all lights turned off simultaneously")
             self._coordinator.turn_off()
             self.async_schedule_update_ha_state()
             return
 
-        # Some lights are still on - estimate overall brightness from current state
+        # Case 2: All lights are now off (even if only some were in this batch)
+        if not self._coordinator.is_on:
+            _LOGGER.info("Manual change: all lights now off")
+            self._coordinator.turn_off()
+            self.async_schedule_update_ha_state()
+            return
+
+        # Case 3: Some lights still on - estimate overall brightness
         overall_pct = self._coordinator._estimate_overall_from_current_lights()
         
         if overall_pct > 0:
@@ -246,11 +292,12 @@ class CombinedLight(LightEntity, RestoreEntity):
             self._coordinator._is_on = True
 
         _LOGGER.info(
-            "Manual change settled: new overall brightness %.1f%%",
+            "Manual change settled: %d changes, new overall brightness %.1f%%",
+            len(changes),
             overall_pct,
         )
 
-        # Calculate what back-propagation would do
+        # Back-propagate if enabled
         if self._back_propagation_enabled:
             back_prop_changes = self._coordinator.apply_back_propagation()
             if back_prop_changes:

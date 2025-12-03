@@ -39,9 +39,9 @@ def combined_light(hass: HomeAssistant, mock_entry):
 
 
 async def wait_for_debounce(light: CombinedLight):
-    """Wait for manual change debounce to complete."""
-    # Wait slightly longer than the debounce period
-    await asyncio.sleep(light._manual_change_debounce + 0.05)
+    """Wait for manual change window to complete."""
+    # Wait slightly longer than the collection window
+    await asyncio.sleep(light._manual_change_window + 0.05)
     # Also wait for any scheduled task to complete
     if light._manual_change_task and not light._manual_change_task.done():
         try:
