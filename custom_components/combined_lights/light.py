@@ -297,9 +297,13 @@ class CombinedLight(LightEntity, RestoreEntity):
             overall_pct,
         )
 
-        # Back-propagate if enabled
+        # Back-propagate if enabled, but exclude manually changed lights
+        # to preserve the user's intent
         if self._back_propagation_enabled:
             back_prop_changes = self._coordinator.apply_back_propagation()
+            # Remove manually changed lights from back-propagation
+            for entity_id in changed_lights:
+                back_prop_changes.pop(entity_id, None)
             if back_prop_changes:
                 self._schedule_back_propagation(back_prop_changes, None)
 
