@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.core import Context, HomeAssistant
+from homeassistant.core import HomeAssistant
 
 from .base_coordinator import BaseCombinedLightsCoordinator, LightState
 from .brightness_calculator import BrightnessCalculator
@@ -109,7 +109,7 @@ class HACombinedLightsCoordinator(BaseCombinedLightsCoordinator):
             light.brightness = 0
 
         # Update overall on/off state
-        any_on = any(l.is_on for l in self._lights.values())
+        any_on = any(light.is_on for light in self._lights.values())
         self._is_on = any_on
 
         # Calculate new overall brightness using single-light estimation

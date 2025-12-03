@@ -160,7 +160,7 @@ class TestAsyncTurnOff:
         async def mock_turn_off_lights(lights, context):
             for entity in lights:
                 operation_order.append(("service_call", entity))
-            return {l: 0 for l in lights}
+            return {entity: 0 for entity in lights}
 
         light._light_controller.turn_off_lights = mock_turn_off_lights
         light.async_write_ha_state = MagicMock()

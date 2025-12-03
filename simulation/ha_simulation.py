@@ -116,7 +116,7 @@ class HASimulationServer:
         site = web.TCPSite(self._runner, self.host, self.port)
         await site.start()
 
-        print(f"\n🏠 Combined Lights HA-Based Simulation Server")
+        print("\n🏠 Combined Lights HA-Based Simulation Server")
         print(f"   Open http://{self.host}:{self.port} in your browser\n")
 
     async def stop(self) -> None:
@@ -435,7 +435,9 @@ class HASimulationServer:
                         {"entity_id": bp_entity_id, "brightness": bp_brightness},
                     )
                     bp_pct = bp_brightness / 255 * 100
-                    self._log_event(f"↩️ Stage {bp_light.stage}: {bp_pct:.0f}%", "backprop")
+                    self._log_event(
+                        f"↩️ Stage {bp_light.stage}: {bp_pct:.0f}%", "backprop"
+                    )
                 else:
                     await self.hass.services.async_call(
                         "light",

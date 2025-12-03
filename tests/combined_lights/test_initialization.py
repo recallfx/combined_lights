@@ -2,7 +2,6 @@
 
 import pytest
 from homeassistant.core import HomeAssistant
-from unittest.mock import patch
 
 from custom_components.combined_lights.light import CombinedLight
 
@@ -67,8 +66,6 @@ class TestInitialization:
         assert combined_light._target_brightness_initialized is True
 
         # The flag prevents re-initialization
-        initial_brightness = combined_light._coordinator.target_brightness
-
         # Change the state
         hass.states.async_set("light.test_stage1", "on", {"brightness": 200})
 

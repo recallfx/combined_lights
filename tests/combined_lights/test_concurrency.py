@@ -1,7 +1,7 @@
 """Tests for concurrency handling in Combined Lights."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -61,7 +61,7 @@ class TestExpectedStateTracking:
         # Mock the light controller to record when turn_on_lights is called
         async def mock_turn_on_lights(lights, brightness, context):
             operation_order.append(("service_call", lights[0] if lights else None))
-            return {l: int(brightness / 100.0 * 255) for l in lights}
+            return {entity: int(brightness / 100.0 * 255) for entity in lights}
 
         light._light_controller.turn_on_lights = mock_turn_on_lights
 
@@ -102,7 +102,7 @@ class TestExpectedStateTracking:
         async def failing_turn_on(lights, brightness, context):
             if "light.bulb_2" in lights:
                 raise Exception("Light unavailable")
-            return {l: int(brightness / 100.0 * 255) for l in lights}
+            return {entity: int(brightness / 100.0 * 255) for entity in lights}
 
         light._light_controller.turn_on_lights = failing_turn_on
         light.async_write_ha_state = MagicMock()
