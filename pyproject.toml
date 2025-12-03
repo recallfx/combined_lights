@@ -20,6 +20,9 @@ combined-lights-sim = "simulation.ha_simulation:run_server"
 [tool.setuptools.packages.find]
 include = ["simulation*", "custom_components*"]
 
+[tool.setuptools.package-data]
+"custom_components.combined_lights" = ["manifest.json", "strings.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = [".git"]
