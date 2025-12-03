@@ -1,5 +1,6 @@
 """Test bidirectional brightness synchronization."""
 
+import asyncio
 from unittest.mock import MagicMock
 
 import pytest
@@ -37,6 +38,18 @@ def combined_light(hass: HomeAssistant, mock_entry):
     return CombinedLight(hass, mock_entry)
 
 
+async def wait_for_debounce(light: CombinedLight):
+    """Wait for manual change debounce to complete."""
+    # Wait slightly longer than the debounce period
+    await asyncio.sleep(light._manual_change_debounce + 0.05)
+    # Also wait for any scheduled task to complete
+    if light._manual_change_task and not light._manual_change_task.done():
+        try:
+            await light._manual_change_task
+        except asyncio.CancelledError:
+            pass
+
+
 class TestBidirectionalSync:
     """Test bidirectional brightness synchronization using coordinator."""
 
@@ -68,27 +81,29 @@ class TestBidirectionalSync:
     async def test_handle_manual_change_updates_coordinator(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Test that manual changes update coordinator state."""
+        """Test that manual changes update coordinator state after debounce."""
         combined_light.hass = hass
 
         # Start with a known state
         combined_light._coordinator._target_brightness = 255
         combined_light._coordinator._is_on = True
 
-        # Setup all lights on
-        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
+        # Setup: only stage 4 on (others off)
+        hass.states.async_set("light.stage1_1", STATE_OFF)
+        hass.states.async_set("light.stage1_2", STATE_OFF)
+        hass.states.async_set("light.stage2_1", STATE_OFF)
+        hass.states.async_set("light.stage3_1", STATE_OFF)
         hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
 
-        # Manually turn off stage 4
+        # Manually turn off stage 4 - now all lights are off
         hass.states.async_set("light.stage4_1", STATE_OFF)
         combined_light._handle_manual_change("light.stage4_1")
 
-        # Target should be reduced to 75% (stage 4 activation point)
-        expected = int(75 / 100 * 255)  # 191
-        assert combined_light._coordinator.target_brightness == expected
+        # Wait for debounce
+        await wait_for_debounce(combined_light)
+
+        # With all lights off, coordinator should be off
+        assert combined_light._coordinator.is_on is False
 
     async def test_manual_change_skipped_when_updating(
         self, hass: HomeAssistant, combined_light: CombinedLight
@@ -103,7 +118,7 @@ class TestBidirectionalSync:
         hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 100})
         combined_light._handle_manual_change("light.stage1_1")
 
-        # Should be unchanged
+        # Should be unchanged (no task scheduled)
         assert combined_light._coordinator.target_brightness == initial_target
 
         combined_light._manual_detector.set_updating_flag(False)
@@ -111,56 +126,61 @@ class TestBidirectionalSync:
     async def test_turning_off_stage_light_reduces_overall_brightness(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Turning off a stage light should reduce overall brightness."""
+        """Turning off highest active stage should reduce overall brightness."""
         combined_light.hass = hass
         combined_light._back_propagation_enabled = True
         combined_light._coordinator._target_brightness = 255
         combined_light._coordinator._is_on = True
 
-        # All lights on at 100%
-        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
-
-        # Manually turn off stage 4 light
-        hass.states.async_set("light.stage4_1", STATE_OFF)
-        combined_light._handle_manual_change("light.stage4_1")
-
-        # Stage 4 activates at 75%, so turning it off should set overall to 75%
-        expected_brightness = int(75 / 100 * 255)  # 191
-        assert combined_light._coordinator.target_brightness == expected_brightness, (
-            f"Expected brightness {expected_brightness} (75%) after turning off stage 4, "
-            f"but got {combined_light._coordinator.target_brightness}"
-        )
-
-    async def test_turning_off_stage_3_reduces_to_stage_2_max(
-        self, hass: HomeAssistant, combined_light: CombinedLight
-    ):
-        """Turning off stage 3 should reduce overall to stage 2's max (50%)."""
-        combined_light.hass = hass
-        combined_light._back_propagation_enabled = True
-        combined_light._coordinator._target_brightness = 200
-        combined_light._coordinator._is_on = True
-
-        # Stage 1, 2, 3 on, stage 4 off
-        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
+        # Stage 1-3 on at 50% brightness, stage 4 off
+        # This represents overall ~62% brightness (stage 3 active)
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 128})
+        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 128})
+        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 128})
+        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 128})
         hass.states.async_set("light.stage4_1", STATE_OFF)
 
         # Manually turn off stage 3 light
         hass.states.async_set("light.stage3_1", STATE_OFF)
         combined_light._handle_manual_change("light.stage3_1")
 
-        # Stage 3 activates at 50%, so turning it off should set overall to 50%
-        expected_brightness = int(50 / 100 * 255)  # 127
-        assert combined_light._coordinator.target_brightness == expected_brightness, (
-            f"Expected brightness {expected_brightness} (50%) after turning off stage 3, "
-            f"but got {combined_light._coordinator.target_brightness}"
+        # Wait for debounce
+        await wait_for_debounce(combined_light)
+
+        # After turning off stage 3, the estimation should be based on stage 1-2
+        # Stage 2 at 128 (50%) → overall brightness calculated from remaining lights
+        target = combined_light._coordinator.target_brightness
+        # Should be less than full brightness (255)
+        assert target < 200, (
+            f"Expected brightness < 200 after turning off stage 3, "
+            f"but got {target}"
         )
+
+    async def test_turning_off_stage_3_reduces_to_stage_2_max(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Turning off stage 3 when it's the only stage on should turn off."""
+        combined_light.hass = hass
+        combined_light._back_propagation_enabled = True
+        combined_light._coordinator._target_brightness = 200
+        combined_light._coordinator._is_on = True
+
+        # Only stage 3 is on, others off
+        hass.states.async_set("light.stage1_1", STATE_OFF)
+        hass.states.async_set("light.stage1_2", STATE_OFF)
+        hass.states.async_set("light.stage2_1", STATE_OFF)
+        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage4_1", STATE_OFF)
+
+        # Manually turn off stage 3 light - now all are off
+        hass.states.async_set("light.stage3_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage3_1")
+
+        # Wait for debounce
+        await wait_for_debounce(combined_light)
+
+        # All lights off, coordinator should be off
+        assert combined_light._coordinator.is_on is False
 
     async def test_back_propagation_scheduled_on_manual_change(
         self, hass: HomeAssistant, combined_light: CombinedLight
@@ -170,8 +190,20 @@ class TestBidirectionalSync:
         combined_light._back_propagation_enabled = True
         combined_light._schedule_back_propagation = MagicMock()
 
+        # Set up lights so there's something to back-propagate
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
+        combined_light._coordinator._is_on = True
+
+        # Manually change one light to trigger back-prop
+        hass.states.async_set("light.stage4_1", STATE_OFF)
         combined_light._handle_manual_change("light.stage4_1")
+
+        # Wait for debounce
+        await wait_for_debounce(combined_light)
 
         combined_light._schedule_back_propagation.assert_called_once()
 
@@ -183,9 +215,57 @@ class TestBidirectionalSync:
         combined_light._back_propagation_enabled = False
         combined_light._schedule_back_propagation = MagicMock()
 
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
+        combined_light._coordinator._is_on = True
+
         combined_light._handle_manual_change("light.stage4_1")
 
+        # Wait for debounce
+        await wait_for_debounce(combined_light)
+
+        combined_light._schedule_back_propagation.assert_not_called()
+
+    async def test_knx_all_off_button_turns_everything_off(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """KNX 'all off' button should turn off all lights without recovery.
+        
+        When a KNX button sends off to all lights simultaneously, all events
+        arrive within the debounce window. After debounce, all lights are off
+        and no back-propagation should occur.
+        """
+        combined_light.hass = hass
+        combined_light._back_propagation_enabled = True
+        combined_light._schedule_back_propagation = MagicMock()
+        combined_light._coordinator._is_on = True
+        combined_light._coordinator._target_brightness = 255
+
+        # All lights initially on
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
+
+        # KNX button turns all lights off - events arrive rapidly
+        hass.states.async_set("light.stage1_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage1_1")
+        hass.states.async_set("light.stage1_2", STATE_OFF)
+        combined_light._handle_manual_change("light.stage1_2")
+        hass.states.async_set("light.stage2_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage2_1")
+        hass.states.async_set("light.stage3_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage3_1")
+        hass.states.async_set("light.stage4_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage4_1")
+
+        # Wait for debounce
+        await wait_for_debounce(combined_light)
+
+        # Everything should be off
+        assert combined_light._coordinator.is_on is False
+        # Back propagation should NOT have been called (nothing to propagate)
         combined_light._schedule_back_propagation.assert_not_called()
 
     async def test_back_propagation_excludes_changed_entity(

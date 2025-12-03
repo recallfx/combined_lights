@@ -95,6 +95,8 @@ class CombinedLight(LightEntity, RestoreEntity):
             CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
         )
         self._back_prop_task: asyncio.Task | None = None
+        self._manual_change_task: asyncio.Task | None = None
+        self._manual_change_debounce = 0.15  # seconds to wait for grouped changes
         self._lock = asyncio.Lock()
 
     def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
@@ -189,7 +191,11 @@ class CombinedLight(LightEntity, RestoreEntity):
                 )
 
     def _handle_manual_change(self, entity_id: str) -> None:
-        """Handle a manual light change using the coordinator."""
+        """Handle a manual light change using the coordinator.
+        
+        Uses debouncing to handle grouped changes (e.g., KNX "all off" button
+        that sends off to multiple lights simultaneously).
+        """
         if not self.hass:
             return
 
@@ -198,35 +204,59 @@ class CombinedLight(LightEntity, RestoreEntity):
             _LOGGER.debug("Skipping manual change handling while updating")
             return
 
-        # Get the new brightness from HA state
-        state = self.hass.states.get(entity_id)
-        if state is None:
-            return
+        # Cancel any pending manual change handling - we'll restart the timer
+        if self._manual_change_task and not self._manual_change_task.done():
+            self._manual_change_task.cancel()
 
-        if state.state == "on":
-            brightness = state.attributes.get("brightness", 255) or 255
-        else:
-            brightness = 0
-
-        # Sync all lights from HA first so coordinator knows current state
-        # This is critical for correct estimation when a light is turned off
-        self._coordinator.sync_all_lights_from_ha()
-
-        # Use coordinator to handle the change - same logic as simulation
-        overall_pct, back_prop_changes = self._coordinator.handle_manual_light_change(
-            entity_id, brightness
+        # Schedule debounced handling
+        self._manual_change_task = self.hass.async_create_task(
+            self._async_handle_manual_change_debounced()
         )
 
+    async def _async_handle_manual_change_debounced(self) -> None:
+        """Handle manual changes after debounce period.
+        
+        Waits for grouped changes to settle, then syncs all lights from HA
+        and reacts to the combined state.
+        """
+        try:
+            # Wait for more changes to settle
+            await asyncio.sleep(self._manual_change_debounce)
+        except asyncio.CancelledError:
+            # Another change came in, this task was cancelled
+            return
+
+        # Now sync all lights from HA to get the settled state
+        self._coordinator.sync_all_lights_from_ha()
+
+        # If everything is off, just turn off - no back-propagation needed
+        if not self._coordinator.is_on:
+            _LOGGER.info("Manual change: all lights off, turning combined light off")
+            self._coordinator.turn_off()
+            self.async_schedule_update_ha_state()
+            return
+
+        # Some lights are still on - estimate overall brightness from current state
+        overall_pct = self._coordinator._estimate_overall_from_current_lights()
+        
+        if overall_pct > 0:
+            self._coordinator._target_brightness = max(
+                1, min(255, int(overall_pct / 100 * 255))
+            )
+            self._coordinator._is_on = True
+
         _LOGGER.info(
-            "Manual change: %s -> %d, new overall: %.1f%%",
-            entity_id,
-            brightness,
+            "Manual change settled: new overall brightness %.1f%%",
             overall_pct,
         )
 
-        # Schedule back-propagation if enabled
-        if self._back_propagation_enabled and back_prop_changes:
-            self._schedule_back_propagation(back_prop_changes, entity_id)
+        # Calculate what back-propagation would do
+        if self._back_propagation_enabled:
+            back_prop_changes = self._coordinator.apply_back_propagation()
+            if back_prop_changes:
+                self._schedule_back_propagation(back_prop_changes, None)
+
+        self.async_schedule_update_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         """Entity removed from Home Assistant."""
@@ -234,6 +264,8 @@ class CombinedLight(LightEntity, RestoreEntity):
             self._remove_listener()
         if self._back_prop_task and not self._back_prop_task.done():
             self._back_prop_task.cancel()
+        if self._manual_change_task and not self._manual_change_task.done():
+            self._manual_change_task.cancel()
         await super().async_will_remove_from_hass()
 
     @property
