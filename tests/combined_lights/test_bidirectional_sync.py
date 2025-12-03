@@ -32,143 +32,161 @@ def mock_entry():
 
 
 @pytest.fixture
-def combined_light(mock_entry):
+def combined_light(hass: HomeAssistant, mock_entry):
     """Create a CombinedLight instance."""
-    return CombinedLight(mock_entry)
+    return CombinedLight(hass, mock_entry)
 
 
 class TestBidirectionalSync:
-    """Test bidirectional brightness synchronization."""
+    """Test bidirectional brightness synchronization using coordinator."""
 
-    async def test_update_target_brightness_from_children(
+    async def test_sync_coordinator_from_ha(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Test that target brightness updates when child lights change."""
-        # Directly set hass (simpler than full entity setup)
+        """Test that coordinator syncs state from HA lights."""
         combined_light.hass = hass
 
         # Setup initial state - some lights on
-        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 51})  # 20%
-        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 51})  # 20%
-        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 77})  # 30%
+        # Stage 2 at 78% brightness maps to ~83% overall with default breakpoints
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 128})
+        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 128})
+        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 200})
         hass.states.async_set("light.stage3_1", STATE_OFF)
         hass.states.async_set("light.stage4_1", STATE_OFF)
 
-        # Initial target brightness
-        initial_brightness = combined_light._target_brightness
+        # Sync coordinator
+        combined_light._sync_coordinator_from_ha()
 
-        # Trigger update
-        combined_light._update_target_brightness_from_children()
+        # Coordinator should have updated is_on state
+        assert combined_light._coordinator.is_on is True
 
-        # Target brightness should be updated
-        # With stage 1 and stage 2 active, we're in stage 2 (25-50%)
-        # So target should be somewhere in that range (in 0-255 scale: 64-128)
-        new_brightness = combined_light._target_brightness
-        assert new_brightness != initial_brightness
-        assert 50 < new_brightness < 150  # Reasonable range for stage 2
+        # Target brightness should be estimated from current state
+        # Stage 2 at brightness 200 (78%) → overall ~83% (213)
+        target = combined_light._coordinator.target_brightness
+        assert 180 < target < 230  # Reasonable range for stage 2 at 78%
 
-    async def test_no_update_when_updating_lights(
+    async def test_handle_manual_change_updates_coordinator(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Test that target brightness doesn't update when we're controlling lights."""
-        # Directly set hass
+        """Test that manual changes update coordinator state."""
         combined_light.hass = hass
 
-        # Setup lights
-        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 100})
+        # Start with a known state
+        combined_light._coordinator._target_brightness = 255
+        combined_light._coordinator._is_on = True
+
+        # Setup all lights on
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
+
+        # Manually turn off stage 4
+        hass.states.async_set("light.stage4_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage4_1")
+
+        # Target should be reduced to 75% (stage 4 activation point)
+        expected = int(75 / 100 * 255)  # 191
+        assert combined_light._coordinator.target_brightness == expected
+
+    async def test_manual_change_skipped_when_updating(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Test that manual changes are skipped while updating lights."""
+        combined_light.hass = hass
+        initial_target = combined_light._coordinator.target_brightness
 
         # Set the updating flag
         combined_light._manual_detector.set_updating_flag(True)
 
-        initial_brightness = combined_light._target_brightness
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 100})
+        combined_light._handle_manual_change("light.stage1_1")
 
-        # Try to update
-        combined_light._update_target_brightness_from_children()
+        # Should be unchanged
+        assert combined_light._coordinator.target_brightness == initial_target
 
-        # Brightness should not change
-        assert combined_light._target_brightness == initial_brightness
-
-        # Clear the flag and try again
         combined_light._manual_detector.set_updating_flag(False)
-        combined_light._update_target_brightness_from_children()
 
-        # Now it should update
-        # (might be same value, but at least it's not blocked)
-
-    async def test_no_update_when_all_lights_off(
+    async def test_turning_off_stage_light_reduces_overall_brightness(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Test that target brightness is preserved when all lights turn off."""
-        # Directly set hass
+        """Turning off a stage light should reduce overall brightness."""
         combined_light.hass = hass
+        combined_light._back_propagation_enabled = True
+        combined_light._coordinator._target_brightness = 255
+        combined_light._coordinator._is_on = True
 
-        # Set initial target
-        combined_light._target_brightness = 150
-
-        # All lights off
-        hass.states.async_set("light.stage1_1", STATE_OFF)
-        hass.states.async_set("light.stage1_2", STATE_OFF)
-        hass.states.async_set("light.stage2_1", STATE_OFF)
-        hass.states.async_set("light.stage3_1", STATE_OFF)
-        hass.states.async_set("light.stage4_1", STATE_OFF)
-
-        # Trigger update
-        combined_light._update_target_brightness_from_children()
-
-        # Target should be preserved
-        assert combined_light._target_brightness == 150
-
-    async def test_small_changes_ignored(
-        self, hass: HomeAssistant, combined_light: CombinedLight
-    ):
-        """Test that very small brightness changes don't trigger updates."""
-        # Directly set hass
-        combined_light.hass = hass
-
-        # Set initial state
-        combined_light._target_brightness = 100
-
-        # Create a state that would result in ~100 brightness (within tolerance)
-        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 40})
-        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 40})
-        hass.states.async_set("light.stage2_1", STATE_OFF)
-        hass.states.async_set("light.stage3_1", STATE_OFF)
-        hass.states.async_set("light.stage4_1", STATE_OFF)
-
-        # Trigger update
-        combined_light._update_target_brightness_from_children()
-
-        # Should remain relatively stable (within a reasonable range)
-        # The exact value depends on the calculation, but it shouldn't jump wildly
-
-    async def test_manual_update_indicator_mode(
-        self, hass: HomeAssistant, combined_light: CombinedLight
-    ):
-        """Manual updates without back propagation should use coverage indicator."""
-        combined_light.hass = hass
-        combined_light._target_brightness = 200
-
+        # All lights on at 100%
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
 
-        combined_light._update_target_brightness_from_children(manual_update=True)
+        # Manually turn off stage 4 light
+        hass.states.async_set("light.stage4_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage4_1")
 
-        assert (
-            250 < combined_light._target_brightness <= 255
-        )  # Stage 4 active means high brightness
+        # Stage 4 activates at 75%, so turning it off should set overall to 75%
+        expected_brightness = int(75 / 100 * 255)  # 191
+        assert combined_light._coordinator.target_brightness == expected_brightness, (
+            f"Expected brightness {expected_brightness} (75%) after turning off stage 4, "
+            f"but got {combined_light._coordinator.target_brightness}"
+        )
 
-    async def test_manual_update_triggers_back_propagation(
+    async def test_turning_off_stage_3_reduces_to_stage_2_max(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Manual updates should schedule back propagation when enabled."""
+        """Turning off stage 3 should reduce overall to stage 2's max (50%)."""
+        combined_light.hass = hass
+        combined_light._back_propagation_enabled = True
+        combined_light._coordinator._target_brightness = 200
+        combined_light._coordinator._is_on = True
+
+        # Stage 1, 2, 3 on, stage 4 off
+        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage1_2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3_1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage4_1", STATE_OFF)
+
+        # Manually turn off stage 3 light
+        hass.states.async_set("light.stage3_1", STATE_OFF)
+        combined_light._handle_manual_change("light.stage3_1")
+
+        # Stage 3 activates at 50%, so turning it off should set overall to 50%
+        expected_brightness = int(50 / 100 * 255)  # 127
+        assert combined_light._coordinator.target_brightness == expected_brightness, (
+            f"Expected brightness {expected_brightness} (50%) after turning off stage 3, "
+            f"but got {combined_light._coordinator.target_brightness}"
+        )
+
+    async def test_back_propagation_scheduled_on_manual_change(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual changes should schedule back propagation when enabled."""
         combined_light.hass = hass
         combined_light._back_propagation_enabled = True
         combined_light._schedule_back_propagation = MagicMock()
 
         hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
-
-        combined_light._update_target_brightness_from_children(manual_update=True)
+        combined_light._handle_manual_change("light.stage4_1")
 
         combined_light._schedule_back_propagation.assert_called_once()
+
+    async def test_back_propagation_not_scheduled_when_disabled(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual changes should not schedule back propagation when disabled."""
+        combined_light.hass = hass
+        combined_light._back_propagation_enabled = False
+        combined_light._schedule_back_propagation = MagicMock()
+
+        hass.states.async_set("light.stage4_1", STATE_ON, {"brightness": 255})
+        combined_light._handle_manual_change("light.stage4_1")
+
+        combined_light._schedule_back_propagation.assert_not_called()
 
     async def test_back_propagation_excludes_changed_entity(
         self, hass: HomeAssistant, combined_light: CombinedLight
@@ -180,18 +198,125 @@ class TestBidirectionalSync:
         combined_light._light_controller.turn_on_lights = MagicMock(return_value={})
         combined_light._light_controller.turn_off_lights = MagicMock(return_value={})
 
-        # Simulate manual change to stage1_1
+        # Create changes dict that would include the changed entity
         changed_entity = "light.stage1_1"
-        overall_pct = 50.0
+        changes = {
+            "light.stage1_2": 128,
+            "light.stage2_1": 200,
+            "light.stage3_1": 0,
+            "light.stage4_1": 0,
+        }  # Note: stage1_1 is NOT in changes (already excluded by coordinator)
 
         # Call back propagation directly
-        await combined_light._async_apply_back_propagation(overall_pct, changed_entity)
+        await combined_light._async_apply_back_propagation(changes, changed_entity)
 
-        # Verify that turn_on_lights was called but WITHOUT the changed entity
+        # Verify turn_on_lights was called
         calls = combined_light._light_controller.turn_on_lights.call_args_list
         for call in calls:
             entities = call[0][0]  # First positional arg is the entity list
             assert changed_entity not in entities, (
-                f"Changed entity {changed_entity} should be excluded from "
-                f"back-propagation but was found in: {entities}"
+                f"Changed entity {changed_entity} should be excluded"
             )
+
+
+class TestHASimulationParity:
+    """Test that HA integration uses same logic as simulation."""
+
+    def test_single_light_estimation_matches_base_coordinator(self):
+        """Verify BrightnessCalculator.estimate_from_single_light_change matches base logic."""
+        # Create a mock entry with default breakpoints [25, 50, 75]
+        entry = MagicMock(spec=ConfigEntry)
+        entry.data = {"breakpoints": [25, 50, 75]}
+
+        from custom_components.combined_lights.helpers import BrightnessCalculator
+
+        calc = BrightnessCalculator(entry)
+
+        # Test cases: (zone_name, brightness_0_255, expected_overall_pct)
+        test_cases = [
+            # Turning OFF lights should return activation point
+            ("stage_4", 0, 75.0),  # Stage 4 activates at 75%
+            ("stage_3", 0, 50.0),  # Stage 3 activates at 50%
+            ("stage_2", 0, 25.0),  # Stage 2 activates at 25%
+            ("stage_1", 0, 0.0),  # Stage 1 is always on, turning off = 0%
+            # Turning ON lights at full brightness
+            ("stage_1", 255, 100.0),  # Full stage 1 = 100%
+            ("stage_4", 255, 100.0),  # Full stage 4 = 100%
+        ]
+
+        for zone_name, brightness, expected in test_cases:
+            result = calc.estimate_from_single_light_change(zone_name, brightness)
+            assert abs(result - expected) < 0.1, (
+                f"estimate_from_single_light_change({zone_name}, {brightness}) "
+                f"returned {result}, expected {expected}"
+            )
+
+    def test_ha_and_simulation_produce_same_result_for_stage_off(self):
+        """Verify HA and simulation produce identical results when turning off a stage."""
+        from custom_components.combined_lights.helpers import BrightnessCalculator
+
+        # Setup: same breakpoints
+        breakpoints = [25, 50, 75]
+
+        # HA path: BrightnessCalculator
+        entry = MagicMock(spec=ConfigEntry)
+        entry.data = {"breakpoints": breakpoints}
+        ha_calc = BrightnessCalculator(entry)
+
+        # Simulation path: use estimate_overall_from_single_light directly
+        # (same method the simulation's set_light_brightness uses)
+
+        # Test turning off stage 4 (brightness=0)
+        ha_result = ha_calc.estimate_from_single_light_change("stage_4", 0)
+        sim_result = ha_calc.estimate_overall_from_single_light(4, 0.0)
+
+        assert ha_result == sim_result == 75.0, (
+            f"HA ({ha_result}) and simulation ({sim_result}) should both return 75% "
+            "when stage 4 is turned off"
+        )
+
+        # Test turning off stage 3
+        ha_result = ha_calc.estimate_from_single_light_change("stage_3", 0)
+        sim_result = ha_calc.estimate_overall_from_single_light(3, 0.0)
+
+        assert ha_result == sim_result == 50.0, (
+            f"HA ({ha_result}) and simulation ({sim_result}) should both return 50% "
+            "when stage 3 is turned off"
+        )
+
+    def test_coordinator_set_light_brightness_matches_ha_handle_manual(
+        self, hass: HomeAssistant
+    ):
+        """Verify coordinator.set_light_brightness produces same result as HA manual handler."""
+        from custom_components.combined_lights.helpers import (
+            BrightnessCalculator,
+            HACombinedLightsCoordinator,
+        )
+
+        entry = MagicMock(spec=ConfigEntry)
+        entry.data = {
+            "breakpoints": [25, 50, 75],
+            "stage_1_lights": ["light.stage1"],
+            "stage_2_lights": ["light.stage2"],
+            "stage_3_lights": ["light.stage3"],
+            "stage_4_lights": ["light.stage4"],
+        }
+
+        calc = BrightnessCalculator(entry)
+        coordinator = HACombinedLightsCoordinator(hass, entry, calc)
+
+        # Register lights
+        coordinator.register_light("light.stage1", 1)
+        coordinator.register_light("light.stage2", 2)
+        coordinator.register_light("light.stage3", 3)
+        coordinator.register_light("light.stage4", 4)
+
+        # Turn on with full brightness
+        coordinator.turn_on(255)
+
+        # Now simulate turning off stage 4
+        _, overall_pct = coordinator.set_light_brightness("light.stage4", 0)
+
+        # Should return 75% (stage 4's activation point)
+        assert overall_pct == 75.0, f"Expected 75%, got {overall_pct}%"
+        assert coordinator.target_brightness == 191  # 75% of 255

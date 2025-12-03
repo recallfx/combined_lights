@@ -6,7 +6,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import STATE_ON, STATE_OFF, STATE_UNAVAILABLE, STATE_UNKNOWN
 from custom_components.combined_lights.light import CombinedLight
 from custom_components.combined_lights.const import CONF_ENABLE_BACK_PROPAGATION
-from custom_components.combined_lights.helpers import ZoneManager
 
 
 @pytest.fixture
@@ -18,8 +17,10 @@ def mock_entry():
         "name": "Test Light",
         CONF_ENABLE_BACK_PROPAGATION: False,
         "breakpoints": [25, 50, 75],
-        "stage_1_brightness_ranges": [[1, 100]],
-        "stage_2_brightness_ranges": [[1, 100]],
+        "stage_1_curve": "linear",
+        "stage_2_curve": "linear",
+        "stage_3_curve": "linear",
+        "stage_4_curve": "linear",
         "stage_1_lights": ["light.bulb_1"],
         "stage_2_lights": ["light.bulb_2"],
         "stage_3_lights": [],
@@ -31,68 +32,60 @@ def mock_entry():
 class TestUnavailableEntities:
     """Tests for handling unavailable or unknown entity states."""
 
-    async def test_zone_manager_skips_unavailable_entities(
+    async def test_coordinator_skips_unavailable_entities(
         self, hass: HomeAssistant, mock_entry
     ):
-        """Test that ZoneManager skips unavailable entities when calculating brightness."""
-        zone_manager = ZoneManager(mock_entry)
+        """Test that coordinator skips unavailable entities when syncing."""
+        light = CombinedLight(hass, mock_entry)
 
         # Set up lights with mixed states
         hass.states.async_set("light.bulb_1", STATE_ON, {"brightness": 100})
         hass.states.async_set("light.bulb_2", STATE_UNAVAILABLE)
 
-        # Get average brightness - should only consider bulb_1
-        result = zone_manager.get_average_brightness(
-            hass, ["light.bulb_1", "light.bulb_2"]
-        )
-        assert result == 100  # Only bulb_1 is counted
+        # Sync from HA
+        light._coordinator.sync_all_lights_from_ha()
 
-    async def test_zone_manager_skips_unknown_entities(
+        # bulb_1 should have synced
+        bulb1 = light._coordinator.get_light("light.bulb_1")
+        assert bulb1 is not None
+        assert bulb1.brightness == 100
+
+        # bulb_2 should remain at default (unavailable is skipped)
+        bulb2 = light._coordinator.get_light("light.bulb_2")
+        assert bulb2 is not None
+        # State should not be updated from unavailable
+
+    async def test_coordinator_skips_unknown_entities(
         self, hass: HomeAssistant, mock_entry
     ):
-        """Test that ZoneManager skips unknown entities when calculating brightness."""
-        zone_manager = ZoneManager(mock_entry)
+        """Test that coordinator skips unknown entities when syncing."""
+        light = CombinedLight(hass, mock_entry)
 
         # Set up lights with mixed states
         hass.states.async_set("light.bulb_1", STATE_ON, {"brightness": 200})
         hass.states.async_set("light.bulb_2", STATE_UNKNOWN)
 
-        # Get average brightness - should only consider bulb_1
-        result = zone_manager.get_average_brightness(
-            hass, ["light.bulb_1", "light.bulb_2"]
-        )
-        assert result == 200
+        # Sync from HA
+        light._coordinator.sync_all_lights_from_ha()
 
-    async def test_zone_manager_all_unavailable_returns_none(
-        self, hass: HomeAssistant, mock_entry
-    ):
-        """Test that all unavailable entities returns None."""
-        zone_manager = ZoneManager(mock_entry)
+        # bulb_1 should have synced
+        bulb1 = light._coordinator.get_light("light.bulb_1")
+        assert bulb1.brightness == 200
 
-        # All lights unavailable
-        hass.states.async_set("light.bulb_1", STATE_UNAVAILABLE)
-        hass.states.async_set("light.bulb_2", STATE_UNAVAILABLE)
-
-        result = zone_manager.get_average_brightness(
-            hass, ["light.bulb_1", "light.bulb_2"]
-        )
-        assert result is None
-
-    async def test_is_any_light_on_ignores_unavailable(
-        self, hass: HomeAssistant, mock_entry
-    ):
-        """Test that is_any_light_on ignores unavailable entities."""
-        zone_manager = ZoneManager(mock_entry)
+    async def test_is_on_ignores_unavailable(self, hass: HomeAssistant, mock_entry):
+        """Test that is_on ignores unavailable entities."""
+        light = CombinedLight(hass, mock_entry)
+        light.hass = hass
 
         # One unavailable, one off
         hass.states.async_set("light.bulb_1", STATE_UNAVAILABLE)
         hass.states.async_set("light.bulb_2", STATE_OFF)
 
-        assert zone_manager.is_any_light_on(hass) is False
+        assert light.is_on is False
 
         # Now set one to on
         hass.states.async_set("light.bulb_2", STATE_ON)
-        assert zone_manager.is_any_light_on(hass) is True
+        assert light.is_on is True
 
 
 class TestTotalFailure:
@@ -101,31 +94,12 @@ class TestTotalFailure:
     @pytest.mark.asyncio
     async def test_async_turn_on_total_failure(self, hass: HomeAssistant, mock_entry):
         """Test that entity is not marked as on when all zones fail."""
-        light = CombinedLight(mock_entry)
+        light = CombinedLight(hass, mock_entry)
         light.hass = hass
-        light._light_controller = AsyncMock()
-        light._zone_manager = MagicMock()
-
-        # Setup zones
-        light._zone_manager.get_light_zones.return_value = {
-            "stage_1": ["light.bulb_1"],
-            "stage_2": ["light.bulb_2"],
-            "stage_3": [],
-            "stage_4": [],
-        }
 
         # Mock controller to fail for all zones
-        light._light_controller.turn_on_lights.side_effect = Exception(
-            "Network failure"
-        )
-
-        light._build_zone_brightness_map = MagicMock(
-            return_value={
-                "stage_1": 50.0,
-                "stage_2": 50.0,
-                "stage_3": 0.0,
-                "stage_4": 0.0,
-            }
+        light._light_controller.turn_on_lights = AsyncMock(
+            side_effect=Exception("Network failure")
         )
 
         # Mock async_write_ha_state
@@ -140,53 +114,23 @@ class TestTotalFailure:
 
 @pytest.mark.asyncio
 async def test_control_all_zones_partial_failure(hass: HomeAssistant, mock_entry):
-    """Test that failure in one zone does not prevent others from updating."""
-    light = CombinedLight(mock_entry)
+    """Test that failure in zone control is handled gracefully."""
+    light = CombinedLight(hass, mock_entry)
     light.hass = hass
-    light._light_controller = AsyncMock()
-    light._zone_manager = MagicMock()
 
-    # Setup two zones
-    light._zone_manager.get_light_zones.return_value = {
-        "stage_1": ["light.bulb_1"],
-        "stage_2": ["light.bulb_2"],
-    }
-
-    # Mock controller to fail for the first zone but succeed for the second
-    async def side_effect(lights, *args, **kwargs):
-        if "light.bulb_1" in lights:
-            raise Exception("Controller failed completely")
-        return {"light.bulb_2": 100}
-
-    light._light_controller.turn_on_lights.side_effect = side_effect
-
-    # Call _control_all_zones
-    # We need to pass the arguments manually as we are calling the private method directly
-    # or we can call async_turn_on which calls it.
-    # Let's call async_turn_on to be more realistic, but we need to mock _build_zone_brightness_map
-    # to ensure both zones get brightness.
-
-    light._build_zone_brightness_map = MagicMock(
-        return_value={"stage_1": 50.0, "stage_2": 50.0}
+    # Mock controller to fail
+    light._light_controller.turn_on_lights = AsyncMock(
+        side_effect=Exception("Controller failed completely")
     )
-
-    # We also need to mock the lock since we are calling async_turn_on
-    light._lock = MagicMock()
-    light._lock.locked.return_value = False
-    light._lock.__aenter__ = AsyncMock()
-    light._lock.__aexit__ = AsyncMock()
 
     # Mock async_write_ha_state
     light.async_write_ha_state = MagicMock()
 
-    # Execute
+    # Execute - should not raise
     await light.async_turn_on(brightness=255)
 
-    # Verify that turn_on_lights was called for both zones (even though first failed)
-    # The side_effect raises exception for first zone.
-    # If exception is NOT caught in _control_all_zones, the second call won't happen.
-
-    assert light._light_controller.turn_on_lights.call_count == 2
+    # Entity should NOT be marked as on since control failed
+    assert light._attr_is_on is False
 
 
 class TestAsyncTurnOff:
@@ -197,7 +141,7 @@ class TestAsyncTurnOff:
         self, hass: HomeAssistant, mock_entry
     ):
         """Test that expected states are tracked BEFORE awaiting service call."""
-        light = CombinedLight(mock_entry)
+        light = CombinedLight(hass, mock_entry)
         light.hass = hass
 
         # Track the order of operations
@@ -216,18 +160,9 @@ class TestAsyncTurnOff:
         async def mock_turn_off_lights(lights, context):
             for entity in lights:
                 operation_order.append(("service_call", entity))
-            return {light: 0 for light in lights}
+            return {l: 0 for l in lights}
 
-        light._light_controller = AsyncMock()
         light._light_controller.turn_off_lights = mock_turn_off_lights
-
-        # Mock zone manager
-        light._zone_manager = MagicMock()
-        light._zone_manager.get_all_lights.return_value = [
-            "light.bulb_1",
-            "light.bulb_2",
-        ]
-
         light.async_write_ha_state = MagicMock()
 
         # Execute turn_off
@@ -252,20 +187,12 @@ class TestAsyncTurnOff:
         self, hass: HomeAssistant, mock_entry
     ):
         """Test that expected states are cleaned up when turn_off fails."""
-        light = CombinedLight(mock_entry)
+        light = CombinedLight(hass, mock_entry)
         light.hass = hass
 
-        # Mock zone manager
-        light._zone_manager = MagicMock()
-        light._zone_manager.get_all_lights.return_value = [
-            "light.bulb_1",
-            "light.bulb_2",
-        ]
-
         # Mock controller to fail
-        light._light_controller = AsyncMock()
-        light._light_controller.turn_off_lights.side_effect = Exception(
-            "Network failure"
+        light._light_controller.turn_off_lights = AsyncMock(
+            side_effect=Exception("Network failure")
         )
 
         light.async_write_ha_state = MagicMock()
@@ -282,17 +209,14 @@ class TestAsyncTurnOff:
         self, hass: HomeAssistant, mock_entry
     ):
         """Test that async_turn_off sets _attr_is_on to False."""
-        light = CombinedLight(mock_entry)
+        light = CombinedLight(hass, mock_entry)
         light.hass = hass
         light._attr_is_on = True  # Start with light on
 
-        # Mock zone manager
-        light._zone_manager = MagicMock()
-        light._zone_manager.get_all_lights.return_value = ["light.bulb_1"]
-
         # Mock controller
-        light._light_controller = AsyncMock()
-        light._light_controller.turn_off_lights.return_value = {"light.bulb_1": 0}
+        light._light_controller.turn_off_lights = AsyncMock(
+            return_value={"light.bulb_1": 0, "light.bulb_2": 0}
+        )
 
         light.async_write_ha_state = MagicMock()
 

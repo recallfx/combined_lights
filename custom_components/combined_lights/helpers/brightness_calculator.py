@@ -55,22 +55,26 @@ class BrightnessCalculator(BaseBrightnessCalculator):
     def calculate_zone_brightness(
         self,
         overall_pct: float,
-        zone_name: str,
+        zone_name: str | int,
     ) -> float:
         """Calculate brightness for a zone.
 
         Args:
             overall_pct: Overall brightness percentage
-            zone_name: Name of the zone (stage_1, stage_2, etc.)
+            zone_name: Name of the zone (stage_1, stage_2, etc.) or stage number (1-4)
 
         Returns:
             Zone brightness percentage (0-100)
         """
-        # Extract stage number from zone name
-        try:
-            stage = int(zone_name.split("_")[1])
-        except (IndexError, ValueError):
-            return 0.0
+        # Handle both string zone names and integer stage numbers
+        if isinstance(zone_name, int):
+            stage = zone_name
+        else:
+            # Extract stage number from zone name
+            try:
+                stage = int(zone_name.split("_")[1])
+            except (IndexError, ValueError):
+                return 0.0
 
         return super().calculate_zone_brightness(overall_pct, stage)
 
@@ -106,3 +110,30 @@ class BrightnessCalculator(BaseBrightnessCalculator):
         since it finds the "highest" active stage and calculates from there.
         """
         return self.estimate_overall_brightness_from_zones(zone_brightness)
+
+    def estimate_from_single_light_change(
+        self, zone_name: str, brightness: int
+    ) -> float:
+        """Estimate overall brightness when a single light is manually changed.
+
+        This mirrors the logic in BaseCombinedLightsCoordinator.set_light_brightness()
+        to ensure HA integration and simulation behave identically.
+
+        Args:
+            zone_name: Zone name (e.g., "stage_1", "stage_2")
+            brightness: New brightness value (0-255), 0 means light is OFF
+
+        Returns:
+            Estimated overall brightness percentage (0-100)
+        """
+        # Extract stage number from zone name
+        try:
+            stage = int(zone_name.split("_")[1])
+        except (IndexError, ValueError):
+            return 0.0
+
+        # Convert brightness to percentage
+        brightness_pct = (brightness / 255.0) * 100 if brightness > 0 else 0.0
+
+        # Use the same method as BaseCombinedLightsCoordinator.set_light_brightness()
+        return self.estimate_overall_from_single_light(stage, brightness_pct)
