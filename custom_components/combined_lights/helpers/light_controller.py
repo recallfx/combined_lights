@@ -37,6 +37,9 @@ class LightController:
         Returns:
             Dictionary mapping entity_id to expected brightness value
         """
+        if not light_entities:
+            return {}
+
         brightness_value = int(brightness_pct / 100.0 * 255)
         expected_states = {}
 
@@ -47,29 +50,32 @@ class LightController:
             light_entities,
         )
 
-        for entity_id in light_entities:
-            try:
-                await self._hass.services.async_call(
-                    "light",
-                    "turn_on",
-                    {
-                        "entity_id": entity_id,
-                        "brightness": brightness_value,
-                    },
-                    context=context,
-                )
+        try:
+            # Call service with all entities at once - more efficient and atomic
+            await self._hass.services.async_call(
+                "light",
+                "turn_on",
+                {
+                    "entity_id": light_entities,
+                    "brightness": brightness_value,
+                },
+                blocking=True,
+                context=context,
+            )
+            # Mark all entities as expected to have new brightness
+            for entity_id in light_entities:
                 expected_states[entity_id] = brightness_value
-                _LOGGER.debug(
-                    "Called light.turn_on for %s with brightness %d",
-                    entity_id,
-                    brightness_value,
-                )
-            except (ServiceNotFound, ValueError) as err:
-                _LOGGER.error("Failed to control light %s: %s", entity_id, err)
-            except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.exception(
-                    "Unexpected error controlling light %s: %s", entity_id, err
-                )
+            _LOGGER.debug(
+                "Called light.turn_on for %s with brightness %d",
+                light_entities,
+                brightness_value,
+            )
+        except (ServiceNotFound, ValueError) as err:
+            _LOGGER.error("Failed to control lights %s: %s", light_entities, err)
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.exception(
+                "Unexpected error controlling lights %s: %s", light_entities, err
+            )
 
         return expected_states
 
@@ -87,22 +93,29 @@ class LightController:
         Returns:
             Dictionary mapping entity_id to expected brightness value (0)
         """
+        if not light_entities:
+            return {}
+
         expected_states = {}
 
-        for entity_id in light_entities:
-            try:
-                await self._hass.services.async_call(
-                    "light",
-                    "turn_off",
-                    {"entity_id": entity_id},
-                    context=context,
-                )
+        try:
+            # Call service with all entities at once - more efficient and atomic
+            await self._hass.services.async_call(
+                "light",
+                "turn_off",
+                {"entity_id": light_entities},
+                blocking=True,
+                context=context,
+            )
+            # Mark all entities as expected to be off
+            for entity_id in light_entities:
                 expected_states[entity_id] = 0
-            except (ServiceNotFound, ValueError) as err:
-                _LOGGER.error("Failed to turn off light %s: %s", entity_id, err)
-            except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.exception(
-                    "Unexpected error turning off light %s: %s", entity_id, err
-                )
+            _LOGGER.debug("Called light.turn_off for %s", light_entities)
+        except (ServiceNotFound, ValueError) as err:
+            _LOGGER.error("Failed to turn off lights %s: %s", light_entities, err)
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.exception(
+                "Unexpected error turning off lights %s: %s", light_entities, err
+            )
 
         return expected_states
