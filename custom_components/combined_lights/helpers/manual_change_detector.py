@@ -72,6 +72,14 @@ class ManualChangeDetector:
             self._updating_lights,
         )
 
+        # Detect transitional on@0 state (light turning on but brightness not yet reported)
+        # Skip processing these - wait for actual brightness value
+        if (new_state and new_state.state == "on" and 
+            (actual_brightness is None or actual_brightness == 0) and
+            old_state and old_state.state == "off"):
+            _LOGGER.info("  -> NOT manual (transitional_on_state, waiting for brightness)")
+            return False, "transitional_on_state"
+
         # If the event comes from one of our recent contexts, it's not manual
         if context_is_ours:
             # Even if brightness doesn't match (e.g. race condition or ramp up),

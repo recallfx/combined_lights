@@ -97,6 +97,11 @@ class CombinedLight(LightEntity, RestoreEntity):
         self._back_prop_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
+        # Debounce state for collecting concurrent external changes
+        self._pending_manual_changes: dict[str, dict] = {}
+        self._debounce_task: asyncio.Task | None = None
+        self._debounce_delay = 0.15  # 150ms to collect concurrent KNX events
+
     def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
         """Register all configured lights with the coordinator."""
         stage_configs = [
@@ -162,8 +167,8 @@ class CombinedLight(LightEntity, RestoreEntity):
                     },
                 )
 
-                # Handle manual change using coordinator
-                self._handle_manual_change(entity_id)
+                # Collect manual change with debounce to handle concurrent events
+                self._queue_manual_change(entity_id, event)
 
             self.async_schedule_update_ha_state()
 
@@ -188,6 +193,83 @@ class CombinedLight(LightEntity, RestoreEntity):
                     self._coordinator._target_brightness,
                 )
 
+    @callback
+    def _queue_manual_change(self, entity_id: str, event: Event) -> None:
+        """Queue a manual change for debounced processing.
+
+        This collects concurrent external changes (e.g., KNX "all off") 
+        before processing to avoid race conditions.
+        """
+        new_state = event.data.get("new_state")
+        if not new_state:
+            return
+
+        # Store the change with timestamp
+        self._pending_manual_changes[entity_id] = {
+            "state": new_state.state,
+            "brightness": new_state.attributes.get("brightness"),
+            "timestamp": event.time_fired,
+        }
+
+        _LOGGER.debug(
+            "Queued manual change for %s (pending: %d)",
+            entity_id.split(".")[-1],
+            len(self._pending_manual_changes),
+        )
+
+        # Cancel existing debounce task and start a new one
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
+
+        self._debounce_task = self.hass.async_create_task(
+            self._process_pending_manual_changes()
+        )
+
+    async def _process_pending_manual_changes(self) -> None:
+        """Process pending manual changes after debounce delay."""
+        try:
+            await asyncio.sleep(self._debounce_delay)
+        except asyncio.CancelledError:
+            # New changes came in, this task was replaced
+            return
+
+        if not self._pending_manual_changes:
+            return
+
+        # Take snapshot of pending changes and clear
+        pending = dict(self._pending_manual_changes)
+        self._pending_manual_changes.clear()
+
+        _LOGGER.info(
+            "Processing %d debounced manual changes: %s",
+            len(pending),
+            [eid.split(".")[-1] for eid in pending.keys()],
+        )
+
+        # Check if this looks like an "all off" command
+        all_turning_off = all(
+            change["state"] == "off" or change["brightness"] == 0
+            for change in pending.values()
+        )
+
+        if all_turning_off and len(pending) > 1:
+            _LOGGER.info("Detected concurrent turn-off pattern, syncing from HA first")
+            # Sync all lights from HA to get current state
+            self._coordinator.sync_all_lights_from_ha()
+
+            # Check if all lights are now off
+            any_on = any(light.is_on for light in self._coordinator._lights.values())
+            if not any_on:
+                _LOGGER.info("All lights are off, skipping back-propagation")
+                self._coordinator._is_on = False
+                self._coordinator._target_brightness = 255  # Reset for next turn on
+                return
+
+        # Process the first change (or most representative one)
+        # For now, just pick one - the coordinator will sync all states anyway
+        entity_id = next(iter(pending.keys()))
+        self._handle_manual_change(entity_id)
+
     def _handle_manual_change(self, entity_id: str) -> None:
         """Handle a manual light change using the coordinator."""
         if not self.hass:
@@ -204,7 +286,15 @@ class CombinedLight(LightEntity, RestoreEntity):
             return
 
         if state.state == "on":
-            brightness = state.attributes.get("brightness", 255) or 255
+            raw_brightness = state.attributes.get("brightness")
+            # Handle transitional on@0 state - skip processing
+            if raw_brightness is None or raw_brightness == 0:
+                _LOGGER.info(
+                    "SKIP manual change for %s: transitional on@0 state",
+                    entity_id.split(".")[-1],
+                )
+                return
+            brightness = raw_brightness
         else:
             brightness = 0
 

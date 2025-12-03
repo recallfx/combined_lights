@@ -165,8 +165,20 @@ class HACombinedLightsCoordinator:
             return
 
         if state.state == "on":
-            light.is_on = True
-            light.brightness = state.attributes.get("brightness", 255) or 255
+            raw_brightness = state.attributes.get("brightness")
+            # Handle transitional on@0 state - don't default to 255
+            # Instead, keep previous brightness or use a safe default
+            if raw_brightness is None or raw_brightness == 0:
+                # Light is transitioning, keep current state if available
+                if light.is_on and light.brightness > 0:
+                    # Keep existing brightness during transition
+                    return
+                # Otherwise mark as on with minimum brightness
+                light.is_on = True
+                light.brightness = 1  # Minimum, not 255
+            else:
+                light.is_on = True
+                light.brightness = raw_brightness
         else:
             light.is_on = False
             light.brightness = 0
