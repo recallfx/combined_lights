@@ -30,7 +30,7 @@ DEFAULT_ENABLE_BACK_PROPAGATION = False
 # Debounce delay for external state changes (in seconds)
 # Allows concurrent KNX/bus events to be collected before processing
 CONF_DEBOUNCE_DELAY = "debounce_delay"
-DEFAULT_DEBOUNCE_DELAY = 0.15  # 150ms - suitable for most KNX setups
+DEFAULT_DEBOUNCE_DELAY = 0.25  # 250ms - allows for slower KNX bus timing
 
 # Brightness curve types
 CURVE_LINEAR = "linear"
