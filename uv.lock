@@ -625,6 +625,7 @@ name = "combined-lights"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "homeassistant" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -634,14 +635,9 @@ dependencies = [
     { name = "syrupy" },
 ]
 
-[package.optional-dependencies]
-simulation = [
-    { name = "aiohttp" },
-]
-
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", marker = "extra == 'simulation'", specifier = ">=3.9.0" },
+    { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "homeassistant", specifier = "==2024.12.5" },
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
@@ -650,7 +646,6 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "syrupy", specifier = ">=4.0.0" },
 ]
-provides-extras = ["simulation"]
 
 [[package]]
 name = "coverage"

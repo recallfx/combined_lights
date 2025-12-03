@@ -1,7 +1,7 @@
 """Tests for concurrency handling in Combined Lights."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -19,10 +19,10 @@ def mock_entry():
         "name": "Test Light",
         CONF_ENABLE_BACK_PROPAGATION: False,
         "breakpoints": [25, 50, 75],
-        "stage_1_brightness_ranges": [[1, 100]],
-        "stage_2_brightness_ranges": [[0, 0]],
-        "stage_3_brightness_ranges": [[0, 0]],
-        "stage_4_brightness_ranges": [[0, 0]],
+        "stage_1_curve": "linear",
+        "stage_2_curve": "linear",
+        "stage_3_curve": "linear",
+        "stage_4_curve": "linear",
         "stage_1_lights": ["light.bulb_1"],
         "stage_2_lights": [],
         "stage_3_lights": [],
@@ -43,7 +43,7 @@ class TestExpectedStateTracking:
         This is critical to prevent the race condition where a state change event
         arrives before the expectation is set.
         """
-        light = CombinedLight(mock_entry)
+        light = CombinedLight(hass, mock_entry)
         light.hass = hass
 
         # Track the order of operations
@@ -61,19 +61,9 @@ class TestExpectedStateTracking:
         # Mock the light controller to record when turn_on_lights is called
         async def mock_turn_on_lights(lights, brightness, context):
             operation_order.append(("service_call", lights[0] if lights else None))
-            return {light: int(brightness / 100.0 * 255) for light in lights}
+            return {entity: int(brightness / 100.0 * 255) for entity in lights}
 
-        light._light_controller = AsyncMock()
         light._light_controller.turn_on_lights = mock_turn_on_lights
-
-        # Mock zone manager
-        light._zone_manager = MagicMock()
-        light._zone_manager.get_light_zones.return_value = {
-            "stage_1": ["light.bulb_1"],
-            "stage_2": [],
-            "stage_3": [],
-            "stage_4": [],
-        }
 
         light.async_write_ha_state = MagicMock()
 
@@ -102,27 +92,19 @@ class TestExpectedStateTracking:
         self, hass: HomeAssistant, mock_entry
     ):
         """Test that expected states are cleaned up when a zone fails."""
-        light = CombinedLight(mock_entry)
-        light.hass = hass
+        # Add stage 2 with a light
+        mock_entry.data["stage_2_lights"] = ["light.bulb_2"]
 
-        # Mock zone manager with two zones
-        light._zone_manager = MagicMock()
-        light._zone_manager.get_light_zones.return_value = {
-            "stage_1": ["light.bulb_1"],
-            "stage_2": ["light.bulb_2"],
-            "stage_3": [],
-            "stage_4": [],
-        }
+        light = CombinedLight(hass, mock_entry)
+        light.hass = hass
 
         # Mock controller to fail for bulb_2
         async def failing_turn_on(lights, brightness, context):
             if "light.bulb_2" in lights:
                 raise Exception("Light unavailable")
-            return {light: int(brightness / 100.0 * 255) for light in lights}
+            return {entity: int(brightness / 100.0 * 255) for entity in lights}
 
-        light._light_controller = AsyncMock()
         light._light_controller.turn_on_lights = failing_turn_on
-
         light.async_write_ha_state = MagicMock()
 
         # Execute turn_on
@@ -135,20 +117,21 @@ class TestExpectedStateTracking:
 @pytest.mark.asyncio
 async def test_async_turn_on_concurrency(hass: HomeAssistant, mock_entry):
     """Test that async_turn_on is serialized."""
-    light = CombinedLight(mock_entry)
+    light = CombinedLight(hass, mock_entry)
     light.hass = hass
-    light._light_controller = AsyncMock()
-    light._zone_manager = MagicMock()
-    light._zone_manager.get_light_zones.return_value = {"stage_1": ["light.bulb_1"]}
-    light._zone_manager.get_all_lights.return_value = ["light.bulb_1"]
-    # Mock async_write_ha_state to avoid NoEntitySpecifiedError
-    light.async_write_ha_state = MagicMock()
 
-    # Mock _control_all_zones to take some time
-    async def slow_control(*args, **kwargs):
+    # Track _apply_changes_to_ha calls
+    call_count = 0
+    original_apply = light._apply_changes_to_ha
+
+    async def slow_apply(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
         await asyncio.sleep(0.05)
+        return await original_apply(*args, **kwargs)
 
-    light._control_all_zones = AsyncMock(side_effect=slow_control)
+    light._apply_changes_to_ha = slow_apply
+    light.async_write_ha_state = MagicMock()
 
     # Start two turn_on calls concurrently
     task1 = asyncio.create_task(light.async_turn_on(brightness=100))
@@ -156,53 +139,71 @@ async def test_async_turn_on_concurrency(hass: HomeAssistant, mock_entry):
 
     await asyncio.gather(task1, task2)
 
-    # Verify that _control_all_zones was called twice
-    assert light._control_all_zones.call_count == 2
+    # Verify that _apply_changes_to_ha was called twice (serialized)
+    assert call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_lock_acquisition(hass: HomeAssistant, mock_entry):
     """Test that lock is acquired during operations."""
-    light = CombinedLight(mock_entry)
+    light = CombinedLight(hass, mock_entry)
     light.hass = hass
-    light._light_controller = AsyncMock()
     light.async_write_ha_state = MagicMock()
-    light._zone_manager = MagicMock()
-    light._zone_manager.get_light_zones.return_value = {}
-    light._control_all_zones = AsyncMock()
 
-    # Mock the lock to verify acquisition
-    # Use MagicMock for the lock object, but AsyncMock for context manager methods
-    light._lock = MagicMock()
-    light._lock.locked.return_value = False
-    light._lock.__aenter__ = AsyncMock(return_value=None)
-    light._lock.__aexit__ = AsyncMock(return_value=None)
+    # Track lock usage
+    lock_acquired = False
+    original_lock = light._lock
+
+    class TrackingLock:
+        async def __aenter__(self):
+            nonlocal lock_acquired
+            lock_acquired = True
+            await original_lock.__aenter__()
+            return self
+
+        async def __aexit__(self, *args):
+            await original_lock.__aexit__(*args)
+
+        def locked(self):
+            return original_lock.locked()
+
+    light._lock = TrackingLock()
 
     await light.async_turn_on(brightness=100)
 
     # Verify lock was acquired
-    light._lock.__aenter__.assert_called_once()
-    light._lock.__aexit__.assert_called_once()
+    assert lock_acquired is True
 
 
 @pytest.mark.asyncio
 async def test_back_propagation_concurrency(hass: HomeAssistant, mock_entry):
     """Test that back propagation respects the lock."""
-    light = CombinedLight(mock_entry)
+    mock_entry.data[CONF_ENABLE_BACK_PROPAGATION] = True
+
+    light = CombinedLight(hass, mock_entry)
     light.hass = hass
-    light._light_controller = AsyncMock()
-    light._zone_manager = MagicMock()
-    light._zone_manager.get_light_zones.return_value = {"stage_1": ["light.bulb_1"]}
-    light._control_all_zones = AsyncMock()
 
-    # Mock the lock
-    light._lock = MagicMock()
-    light._lock.locked.return_value = False
-    light._lock.__aenter__ = AsyncMock(return_value=None)
-    light._lock.__aexit__ = AsyncMock(return_value=None)
+    # Track lock usage
+    lock_acquired = False
+    original_lock = light._lock
 
-    await light._async_apply_back_propagation(50.0)
+    class TrackingLock:
+        async def __aenter__(self):
+            nonlocal lock_acquired
+            lock_acquired = True
+            await original_lock.__aenter__()
+            return self
+
+        async def __aexit__(self, *args):
+            await original_lock.__aexit__(*args)
+
+        def locked(self):
+            return original_lock.locked()
+
+    light._lock = TrackingLock()
+
+    # Manually test back propagation with some changes
+    await light._async_apply_back_propagation({"light.bulb_1": 128}, "light.test")
 
     # Verify lock was acquired
-    light._lock.__aenter__.assert_called_once()
-    light._lock.__aexit__.assert_called_once()
+    assert lock_acquired is True

@@ -17,12 +17,20 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION, DOMAIN
+from .const import (
+    CONF_ENABLE_BACK_PROPAGATION,
+    CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_2_LIGHTS,
+    CONF_STAGE_3_LIGHTS,
+    CONF_STAGE_4_LIGHTS,
+    DEFAULT_ENABLE_BACK_PROPAGATION,
+    DOMAIN,
+)
 from .helpers import (
     BrightnessCalculator,
+    HACombinedLightsCoordinator,
     LightController,
     ManualChangeDetector,
-    ZoneManager,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,8 +46,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Combined Lights light entity."""
-    # Create a single combined light entity
-    async_add_entities([CombinedLight(entry)], True)
+    async_add_entities([CombinedLight(hass, entry)], True)
 
 
 class CombinedLight(LightEntity, RestoreEntity):
@@ -47,7 +54,7 @@ class CombinedLight(LightEntity, RestoreEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the Combined Light."""
         self._entry = entry
         self._attr_name = entry.data.get("name", "Combined Lights")
@@ -66,23 +73,41 @@ class CombinedLight(LightEntity, RestoreEntity):
             sw_version=_VERSION,
         )
 
-        # Helper instances
+        # Create the brightness calculator
         self._brightness_calc = BrightnessCalculator(entry)
-        self._light_controller = LightController(
-            None
-        )  # Will be set in async_added_to_hass
+
+        # Create the HA coordinator - uses same logic as simulation
+        self._coordinator = HACombinedLightsCoordinator(
+            hass, entry, self._brightness_calc
+        )
+
+        # Register lights with the coordinator
+        self._register_lights_with_coordinator(entry)
+
+        # Helper instances for HA-specific functionality
+        self._light_controller = LightController(hass)
         self._manual_detector = ManualChangeDetector()
-        self._zone_manager = ZoneManager(entry)
 
         # State tracking
         self._remove_listener = None
-        self._target_brightness = 255
         self._target_brightness_initialized = False
         self._back_propagation_enabled = entry.data.get(
             CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
         )
         self._back_prop_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+
+    def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
+        """Register all configured lights with the coordinator."""
+        stage_configs = [
+            (1, CONF_STAGE_1_LIGHTS),
+            (2, CONF_STAGE_2_LIGHTS),
+            (3, CONF_STAGE_3_LIGHTS),
+            (4, CONF_STAGE_4_LIGHTS),
+        ]
+        for stage, conf_key in stage_configs:
+            for entity_id in entry.data.get(conf_key, []):
+                self._coordinator.register_light(entity_id, stage)
 
     async def async_added_to_hass(self) -> None:
         """Entity added to Home Assistant."""
@@ -93,17 +118,16 @@ class CombinedLight(LightEntity, RestoreEntity):
             if last_state.state == "on":
                 self._attr_is_on = True
                 if (brightness := last_state.attributes.get("brightness")) is not None:
-                    self._target_brightness = brightness
+                    self._coordinator._target_brightness = brightness
                     self._target_brightness_initialized = True
                     _LOGGER.debug("Restored brightness from last state: %s", brightness)
 
-        # Initialize light controller with hass instance
+        # Update light controller with hass instance
         self._light_controller = LightController(self.hass)
 
-        # Initialize target brightness based on current state
-        # Always attempt sync, even if lights appear off (handles KNX/slow integration startup delay)
+        # Sync coordinator state from actual HA light states
         if not self._target_brightness_initialized:
-            self._sync_target_brightness_from_lights()
+            self._sync_coordinator_from_ha()
             self._target_brightness_initialized = True
 
         # Prepare integration context
@@ -111,7 +135,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         self._manual_detector.add_integration_context(integration_context)
 
         # Listen for state changes of controlled lights
-        all_lights = self._zone_manager.get_all_lights()
+        all_lights = list(self._coordinator._lights.keys())
 
         @callback
         def light_state_changed(event: Event) -> None:
@@ -138,11 +162,8 @@ class CombinedLight(LightEntity, RestoreEntity):
                     },
                 )
 
-                # Update target brightness based on child light changes
-                # Only update for manual changes - integration-initiated changes already have correct target
-                self._update_target_brightness_from_children(
-                    manual_update=True, changed_entity_id=entity_id
-                )
+                # Handle manual change using coordinator
+                self._handle_manual_change(entity_id)
 
             self.async_schedule_update_ha_state()
 
@@ -150,115 +171,62 @@ class CombinedLight(LightEntity, RestoreEntity):
             EVENT_STATE_CHANGED, light_state_changed
         )
 
-    def _sync_target_brightness_from_lights(self) -> None:
-        """Sync target brightness from actual light states (used during initialization)."""
-        # Use the new bidirectional sync method
-        self._update_target_brightness_from_children()
+    def _sync_coordinator_from_ha(self) -> None:
+        """Sync coordinator state from actual HA light states."""
+        self._coordinator.sync_all_lights_from_ha()
 
-        # If still at default, try a fallback calculation
-        if self._target_brightness == 255:
-            light_zones = self._zone_manager.get_light_zones()
-
-            # Get average brightness from each zone
-            zone_brightness = {
-                zone: self._zone_manager.get_average_brightness(self.hass, lights)
-                for zone, lights in light_zones.items()
-            }
-
-            # Simple heuristic: use the highest brightness from active zones
-            max_brightness = 0
-            breakpoints = self._brightness_calc._get_breakpoints()
-
-            if zone_brightness["stage_4"]:
-                max_brightness = max(
-                    max_brightness,
-                    breakpoints[2] * 255 // 100 + zone_brightness["stage_4"] // 2,
+        # Estimate overall brightness from current states
+        if self._coordinator.is_on:
+            overall_pct = self._coordinator._estimate_overall_from_current_lights()
+            if overall_pct > 0:
+                self._coordinator._target_brightness = max(
+                    1, min(255, int(overall_pct / 100 * 255))
                 )
-            elif zone_brightness["stage_3"]:
-                max_brightness = max(
-                    max_brightness,
-                    breakpoints[1] * 255 // 100 + zone_brightness["stage_3"] // 2,
+                _LOGGER.debug(
+                    "Synced target brightness from HA: %.1f%% (%d)",
+                    overall_pct,
+                    self._coordinator._target_brightness,
                 )
-            elif zone_brightness["stage_2"]:
-                max_brightness = max(
-                    max_brightness,
-                    breakpoints[0] * 255 // 100 + zone_brightness["stage_2"] // 2,
-                )
-            elif zone_brightness["stage_1"]:
-                max_brightness = max(max_brightness, zone_brightness["stage_1"])
 
-            if max_brightness > 0:
-                self._target_brightness = min(255, max_brightness)
-
-    def _build_zone_brightness_map(
-        self, brightness_pct: float, light_zones: dict[str, list[str]]
-    ) -> dict[str, float]:
-        """Calculate per-zone brightness targets for a given overall percentage."""
-
-        return {
-            zone_name: self._brightness_calc.calculate_zone_brightness(
-                brightness_pct, zone_name
-            )
-            for zone_name in light_zones.keys()
-        }
-
-    def _update_target_brightness_from_children(
-        self, *, manual_update: bool = False, changed_entity_id: str | None = None
-    ) -> None:
-        """Update target brightness based on current child light states."""
-
+    def _handle_manual_change(self, entity_id: str) -> None:
+        """Handle a manual light change using the coordinator."""
         if not self.hass:
             return
 
-        # Skip updates while we are in the middle of applying our own changes.
-        if self._manual_detector._updating_lights and not manual_update:
-            _LOGGER.debug("Skipping sync while integration is updating lights")
+        # Skip if we're currently updating
+        if self._manual_detector._updating_lights:
+            _LOGGER.debug("Skipping manual change handling while updating")
             return
 
-        zone_brightness = self._zone_manager.get_zone_brightness_dict(self.hass)
-        all_off = all(
-            brightness is None or brightness == 0
-            for brightness in zone_brightness.values()
+        # Get the new brightness from HA state
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return
+
+        if state.state == "on":
+            brightness = state.attributes.get("brightness", 255) or 255
+        else:
+            brightness = 0
+
+        # Sync all lights from HA first so coordinator knows current state
+        # This is critical for correct estimation when a light is turned off
+        self._coordinator.sync_all_lights_from_ha()
+
+        # Use coordinator to handle the change - same logic as simulation
+        overall_pct, back_prop_changes = self._coordinator.handle_manual_light_change(
+            entity_id, brightness
         )
 
-        if all_off:
-            _LOGGER.debug("All child lights off, preserving previous target")
-            return
+        _LOGGER.info(
+            "Manual change: %s -> %d, new overall: %.1f%%",
+            entity_id,
+            brightness,
+            overall_pct,
+        )
 
-        if manual_update and not self._back_propagation_enabled:
-            estimated_brightness_pct = (
-                self._brightness_calc.estimate_manual_indicator_from_zones(
-                    zone_brightness
-                )
-            )
-        else:
-            estimated_brightness_pct = (
-                self._brightness_calc.estimate_overall_brightness_from_zones(
-                    zone_brightness
-                )
-            )
-
-        new_target = int((estimated_brightness_pct / 100.0) * 255)
-        new_target = max(1, min(255, new_target))
-
-        if abs(new_target - self._target_brightness) > 5:
-            old_target = self._target_brightness
-            self._target_brightness = new_target
-            _LOGGER.info(
-                "Target brightness updated from child light changes: %s -> %s (%.1f%%)",
-                old_target,
-                new_target,
-                estimated_brightness_pct,
-            )
-        else:
-            _LOGGER.debug(
-                "Target brightness sync skipped (change too small): current=%s, estimated=%s",
-                self._target_brightness,
-                new_target,
-            )
-
-        if manual_update and self._back_propagation_enabled:
-            self._schedule_back_propagation(estimated_brightness_pct, changed_entity_id)
+        # Schedule back-propagation if enabled
+        if self._back_propagation_enabled and back_prop_changes:
+            self._schedule_back_propagation(back_prop_changes, entity_id)
 
     async def async_will_remove_from_hass(self) -> None:
         """Entity removed from Home Assistant."""
@@ -273,10 +241,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         """Return if entity is available (at least one member light is available)."""
         if not self.hass:
             return False
-        all_lights = self._zone_manager.get_all_lights()
-        if not all_lights:
-            return False
-        for entity_id in all_lights:
+        for entity_id in self._coordinator._lights:
             state = self.hass.states.get(entity_id)
             if state is not None and state.state not in ("unavailable", "unknown"):
                 return True
@@ -285,24 +250,31 @@ class CombinedLight(LightEntity, RestoreEntity):
     @property
     def is_on(self) -> bool:
         """Return true if any controlled light is on."""
-        return self._zone_manager.is_any_light_on(self.hass)
+        if not self.hass:
+            return False
+        for entity_id in self._coordinator._lights:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state == "on":
+                return True
+        return False
 
     @property
     def brightness(self) -> int | None:
         """Return the target brightness of the combined light."""
         if not self.is_on:
             return None
-        return self._target_brightness
+        return self._coordinator.target_brightness
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the combined light."""
-        # Acquire lock to prevent concurrent updates
         if self._lock.locked():
             _LOGGER.debug("Waiting for lock in async_turn_on")
 
         async with self._lock:
-            if ATTR_BRIGHTNESS in kwargs:
-                self._target_brightness = kwargs[ATTR_BRIGHTNESS]
+            brightness = kwargs.get(ATTR_BRIGHTNESS)
+
+            # Use coordinator to calculate changes - same logic as simulation
+            changes = self._coordinator.turn_on(brightness)
 
             self._attr_is_on = True
 
@@ -312,204 +284,40 @@ class CombinedLight(LightEntity, RestoreEntity):
             )
             self._manual_detector.add_integration_context(caller_ctx)
 
-            # Convert brightness to percentage (0-100)
-            brightness_pct = (self._target_brightness / 255.0) * 100
-
             _LOGGER.info(
-                "Combined light async_turn_on called with target brightness %d (%.1f%%)",
-                self._target_brightness,
-                brightness_pct,
+                "Combined light turn_on: target=%d (%.1f%%), stage=%d",
+                self._coordinator.target_brightness,
+                self._coordinator.target_brightness_pct,
+                self._coordinator.current_stage,
             )
 
-            # Calculate zone brightnesses using helper
-            light_zones = self._zone_manager.get_light_zones()
-            zone_brightness = self._build_zone_brightness_map(
-                brightness_pct, light_zones
-            )
-
-            _LOGGER.info(
-                "Calculated zone brightnesses: %s",
-                {k: f"{v:.1f}%" for k, v in zone_brightness.items()},
-            )
-
-            # Control all zones and check if any succeeded
-            any_success = await self._control_all_zones(
-                light_zones, zone_brightness, caller_ctx
-            )
+            # Apply changes to actual HA lights
+            any_success = await self._apply_changes_to_ha(changes, caller_ctx)
 
             if not any_success:
                 _LOGGER.warning(
-                    "No zones were successfully controlled - combined light state may be inaccurate"
+                    "No lights were successfully controlled - state may be inaccurate"
                 )
-                # Don't set is_on to True if nothing actually turned on
                 self._attr_is_on = False
-                self.async_write_ha_state()
-                return
 
-            # Log the operation
-            stage = self._brightness_calc.get_stage_from_brightness(brightness_pct)
+            # Log zone brightnesses
+            zone_brightness = self._coordinator.get_zone_brightness_for_ha()
             _LOGGER.info(
-                "Combined light turned on - overall: %s%% (stage %s) | stage_1: %s%% | stage_2: %s%% | stage_3: %s%% | stage_4: %s%%",
-                int(brightness_pct),
-                stage + 1,
-                int(zone_brightness.get("stage_1", 0))
-                if zone_brightness.get("stage_1", 0) > 0
-                else 0,
-                int(zone_brightness.get("stage_2", 0))
-                if zone_brightness.get("stage_2", 0) > 0
-                else 0,
-                int(zone_brightness.get("stage_3", 0))
-                if zone_brightness.get("stage_3", 0) > 0
-                else 0,
-                int(zone_brightness.get("stage_4", 0))
-                if zone_brightness.get("stage_4", 0) > 0
-                else 0,
+                "Zone brightnesses: %s",
+                {k: f"{v:.1f}%" for k, v in zone_brightness.items()},
             )
 
             self.async_write_ha_state()
 
-    async def _control_all_zones(
-        self,
-        light_zones: dict[str, list[str]],
-        zone_brightness: dict[str, float],
-        context: Context,
-    ) -> bool:
-        """Control all light zones based on calculated brightness values.
-
-        Returns:
-            True if at least one zone was successfully controlled, False otherwise.
-        """
-        # Set updating flag to prevent feedback loops
-        self._manual_detector.set_updating_flag(True)
-        any_success = False
-
-        try:
-            for zone_name, lights in light_zones.items():
-                if not lights:
-                    _LOGGER.debug("Skipping zone %s - no lights", zone_name)
-                    continue
-
-                brightness = zone_brightness[zone_name]
-                _LOGGER.debug(
-                    "Processing zone %s with lights %s at brightness %d",
-                    zone_name,
-                    lights,
-                    brightness,
-                )
-                try:
-                    if brightness > 0:
-                        # CRITICAL: Track expected states BEFORE awaiting service call
-                        # to prevent race condition where state change event arrives
-                        # before we can track the expectation
-                        brightness_value = int(brightness / 100.0 * 255)
-                        for entity_id in lights:
-                            self._manual_detector.track_expected_state(
-                                entity_id, brightness_value
-                            )
-
-                        expected_states = await self._light_controller.turn_on_lights(
-                            lights, brightness, context
-                        )
-                        _LOGGER.debug(
-                            "Zone %s turned on with expected states: %s",
-                            zone_name,
-                            expected_states,
-                        )
-                        if expected_states:
-                            any_success = True
-                    else:
-                        # CRITICAL: Track expected states BEFORE awaiting service call
-                        for entity_id in lights:
-                            self._manual_detector.track_expected_state(entity_id, 0)
-
-                        expected_states = await self._light_controller.turn_off_lights(
-                            lights, context
-                        )
-                        if expected_states:
-                            any_success = True
-                except Exception as err:  # pylint: disable=broad-except
-                    _LOGGER.error("Failed to control zone %s: %s", zone_name, err)
-                    # Clean up expected states for failed entities
-                    for entity_id in lights:
-                        self._manual_detector.cleanup_expected_state(entity_id)
-        finally:
-            self._manual_detector.set_updating_flag(False)
-
-        return any_success
-
-    def _schedule_back_propagation(
-        self, overall_pct: float, changed_entity_id: str | None = None
-    ) -> None:
-        """Schedule an asynchronous back-propagation run."""
-
-        if not self.hass:
-            return
-
-        if self._back_prop_task and not self._back_prop_task.done():
-            self._back_prop_task.cancel()
-
-        self._back_prop_task = self.hass.async_create_task(
-            self._async_apply_back_propagation(overall_pct, changed_entity_id)
-        )
-
-    async def _async_apply_back_propagation(
-        self, overall_pct: float, changed_entity_id: str | None = None
-    ) -> None:
-        """Drive all zones to match the inferred overall brightness.
-
-        Args:
-            overall_pct: Target overall brightness percentage
-            changed_entity_id: Entity that was manually changed (will be excluded)
-        """
-
-        light_zones = self._zone_manager.get_light_zones()
-        zone_brightness = self._build_zone_brightness_map(overall_pct, light_zones)
-
-        caller_ctx = Context(id=str(uuid.uuid4()), user_id=None)
-        self._manual_detector.add_integration_context(caller_ctx)
-
-        # Filter out the manually changed entity from each zone
-        if changed_entity_id:
-            filtered_zones = {
-                zone: [light for light in lights if light != changed_entity_id]
-                for zone, lights in light_zones.items()
-            }
-            _LOGGER.info(
-                "Back-propagation excluding %s from zones. Original: %s, Filtered: %s",
-                changed_entity_id,
-                light_zones,
-                filtered_zones,
-            )
-        else:
-            filtered_zones = light_zones
-
-        _LOGGER.info(
-            "Back-propagation applying overall_pct=%.1f%% to zones with brightnesses: %s",
-            overall_pct,
-            zone_brightness,
-        )
-
-        try:
-            # Acquire lock to prevent concurrent updates
-            if self._lock.locked():
-                _LOGGER.debug("Waiting for lock in back-propagation")
-
-            async with self._lock:
-                await self._control_all_zones(
-                    filtered_zones, zone_brightness, caller_ctx
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Failed to back-propagate manual change to all stages")
-
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the combined light."""
-        # Acquire lock to prevent concurrent updates
         if self._lock.locked():
             _LOGGER.debug("Waiting for lock in async_turn_off")
 
         async with self._lock:
+            # Use coordinator to calculate changes - same logic as simulation
+            changes = self._coordinator.turn_off()
+
             self._attr_is_on = False
 
             # Get or create context
@@ -518,27 +326,113 @@ class CombinedLight(LightEntity, RestoreEntity):
             )
             self._manual_detector.add_integration_context(caller_ctx)
 
-            # Turn off all configured lights
-            all_lights = self._zone_manager.get_all_lights()
+            # Apply changes to actual HA lights
+            await self._apply_changes_to_ha(changes, caller_ctx)
 
-            if all_lights:
-                # Set updating flag to prevent feedback loops
-                self._manual_detector.set_updating_flag(True)
-                try:
-                    # CRITICAL: Track expected states BEFORE awaiting service call
-                    # to prevent race condition where state change event arrives
-                    # before we can track the expectation
-                    for entity_id in all_lights:
-                        self._manual_detector.track_expected_state(entity_id, 0)
-
-                    await self._light_controller.turn_off_lights(all_lights, caller_ctx)
-                except Exception as err:
-                    _LOGGER.error("Failed to turn off lights: %s", err)
-                    # Clean up expected states for failed entities
-                    for entity_id in all_lights:
-                        self._manual_detector.cleanup_expected_state(entity_id)
-                finally:
-                    self._manual_detector.set_updating_flag(False)
-
-            _LOGGER.info("Combined light turned off - all configured lights turned off")
+            _LOGGER.info("Combined light turned off")
             self.async_write_ha_state()
+
+    async def _apply_changes_to_ha(
+        self, changes: dict[str, int], context: Context
+    ) -> bool:
+        """Apply brightness changes to actual HA lights.
+
+        Args:
+            changes: Dict mapping entity_id to brightness (0-255)
+            context: HA context for the service calls
+
+        Returns:
+            True if at least one light was successfully controlled
+        """
+        self._manual_detector.set_updating_flag(True)
+        any_success = False
+
+        try:
+            # Group by brightness for efficient service calls
+            lights_on: dict[int, list[str]] = {}
+            lights_off: list[str] = []
+
+            for entity_id, brightness in changes.items():
+                if brightness > 0:
+                    if brightness not in lights_on:
+                        lights_on[brightness] = []
+                    lights_on[brightness].append(entity_id)
+                else:
+                    lights_off.append(entity_id)
+
+            # Turn on lights grouped by brightness
+            for brightness, entities in lights_on.items():
+                # Track expected states BEFORE service call
+                for entity_id in entities:
+                    self._manual_detector.track_expected_state(entity_id, brightness)
+
+                try:
+                    brightness_pct = brightness / 255.0 * 100
+                    result = await self._light_controller.turn_on_lights(
+                        entities, brightness_pct, context
+                    )
+                    if result:
+                        any_success = True
+                except Exception as err:
+                    _LOGGER.error("Failed to turn on lights %s: %s", entities, err)
+                    for entity_id in entities:
+                        self._manual_detector.cleanup_expected_state(entity_id)
+
+            # Turn off lights
+            if lights_off:
+                for entity_id in lights_off:
+                    self._manual_detector.track_expected_state(entity_id, 0)
+
+                try:
+                    result = await self._light_controller.turn_off_lights(
+                        lights_off, context
+                    )
+                    if result:
+                        any_success = True
+                except Exception as err:
+                    _LOGGER.error("Failed to turn off lights %s: %s", lights_off, err)
+                    for entity_id in lights_off:
+                        self._manual_detector.cleanup_expected_state(entity_id)
+
+        finally:
+            self._manual_detector.set_updating_flag(False)
+
+        return any_success
+
+    def _schedule_back_propagation(
+        self, changes: dict[str, int], exclude_entity_id: str | None = None
+    ) -> None:
+        """Schedule back-propagation to apply changes to HA lights."""
+        if not self.hass:
+            return
+
+        if self._back_prop_task and not self._back_prop_task.done():
+            self._back_prop_task.cancel()
+
+        self._back_prop_task = self.hass.async_create_task(
+            self._async_apply_back_propagation(changes, exclude_entity_id)
+        )
+
+    async def _async_apply_back_propagation(
+        self, changes: dict[str, int], exclude_entity_id: str | None = None
+    ) -> None:
+        """Apply back-propagation changes to HA lights."""
+        caller_ctx = Context(id=str(uuid.uuid4()), user_id=None)
+        self._manual_detector.add_integration_context(caller_ctx)
+
+        _LOGGER.info(
+            "Back-propagation: applying changes %s (excluding %s)",
+            {k: v for k, v in changes.items()},
+            exclude_entity_id,
+        )
+
+        try:
+            if self._lock.locked():
+                _LOGGER.debug("Waiting for lock in back-propagation")
+
+            async with self._lock:
+                await self._apply_changes_to_ha(changes, caller_ctx)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.exception("Failed to apply back-propagation")

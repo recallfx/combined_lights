@@ -38,9 +38,11 @@ class TestCombinedLight:
     """Test CombinedLight entity."""
 
     @pytest.fixture
-    def combined_light(self, mock_config_entry_advanced) -> CombinedLight:
+    def combined_light(
+        self, hass: HomeAssistant, mock_config_entry_advanced
+    ) -> CombinedLight:
         """Create a CombinedLight instance for testing."""
-        return CombinedLight(mock_config_entry_advanced)
+        return CombinedLight(hass, mock_config_entry_advanced)
 
     def test_init(
         self, combined_light: CombinedLight, mock_config_entry_advanced
@@ -169,8 +171,8 @@ class TestCombinedLight:
 
     def test_get_all_controlled_lights(self, combined_light: CombinedLight) -> None:
         """Test getting all controlled light entity IDs."""
-        zone_manager = combined_light._zone_manager
-        lights = zone_manager.get_all_lights()
+        # In new architecture, lights are registered in coordinator
+        lights = list(combined_light._coordinator._lights.keys())
         expected = [
             "light.stage1_1",
             "light.stage1_2",
@@ -179,39 +181,39 @@ class TestCombinedLight:
         ]
         assert sorted(lights) == sorted(expected)
 
-    def test_get_average_brightness_mocked(self, combined_light: CombinedLight) -> None:
+    def test_get_average_brightness_mocked(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
         """Test getting average brightness with mocked states."""
-        # Mock the hass object and states
-        combined_light.hass = Mock()
+        # Set up mock lights
+        hass.states.async_set("light.stage1_1", "on", {"brightness": 100})
+        hass.states.async_set("light.stage1_2", "on", {"brightness": 200})
+        hass.states.async_set("light.stage2_1", "off")
 
-        def mock_get_state(entity_id):
-            if entity_id == "light.test1":
-                return Mock(state="on", attributes={"brightness": 100})
-            elif entity_id == "light.test2":
-                return Mock(state="on", attributes={"brightness": 200})
-            return Mock(state="off")
+        # Sync from HA and check average brightness of on lights
+        combined_light._coordinator.sync_all_lights_from_ha()
 
-        combined_light.hass.states.get = mock_get_state
-
-        zone_manager = combined_light._zone_manager
-        result = zone_manager.get_average_brightness(
-            combined_light.hass, ["light.test1", "light.test2", "light.test3"]
-        )
-        assert result == 150  # (100 + 200) / 2
+        # Check individual lights have correct brightness
+        light1 = combined_light._coordinator.get_light("light.stage1_1")
+        light2 = combined_light._coordinator.get_light("light.stage1_2")
+        assert light1.brightness == 100
+        assert light2.brightness == 200
 
     def test_get_average_brightness_all_off_mocked(
-        self, combined_light: CombinedLight
+        self, combined_light: CombinedLight, hass: HomeAssistant
     ) -> None:
         """Test getting average brightness when all lights are off."""
-        # Mock the hass object and states
-        combined_light.hass = Mock()
-        combined_light.hass.states.get = Mock(return_value=Mock(state="off"))
+        # Set up all lights as off
+        hass.states.async_set("light.stage1_1", "off")
+        hass.states.async_set("light.stage1_2", "off")
+        hass.states.async_set("light.stage2_1", "off")
+        hass.states.async_set("light.stage4_1", "off")
 
-        zone_manager = combined_light._zone_manager
-        result = zone_manager.get_average_brightness(
-            combined_light.hass, ["light.test1", "light.test2"]
-        )
-        assert result is None
+        combined_light._coordinator.sync_all_lights_from_ha()
+
+        # All lights should have brightness 0
+        for light in combined_light._coordinator.get_lights():
+            assert light.brightness == 0
 
     def test_is_on_property_mocked(self, combined_light: CombinedLight) -> None:
         """Test is_on property with mocked states."""
@@ -231,18 +233,26 @@ class TestCombinedLight:
         combined_light.hass.states.get = mock_get_state
         assert combined_light.is_on is True
 
-    def test_brightness_property(self, combined_light: CombinedLight) -> None:
+    def test_brightness_property(
+        self, combined_light: CombinedLight, hass: HomeAssistant
+    ) -> None:
         """Test brightness property."""
-        # Mock is_on to control the property behavior
-        combined_light.hass = Mock()
-        combined_light.hass.states.get = Mock(return_value=Mock(state="off"))
+        combined_light.hass = hass
+
+        # Set all lights off
+        hass.states.async_set("light.stage1_1", "off")
+        hass.states.async_set("light.stage1_2", "off")
+        hass.states.async_set("light.stage2_1", "off")
+        hass.states.async_set("light.stage4_1", "off")
 
         # When off, brightness should be None
         assert combined_light.brightness is None
 
-        # When on, should return target brightness
-        combined_light.hass.states.get = Mock(return_value=Mock(state="on"))
-        combined_light._target_brightness = 128
+        # When on, should return target brightness from coordinator
+        hass.states.async_set("light.stage1_1", "on", {"brightness": 128})
+        combined_light._coordinator._target_brightness = 128
+        # is_on checks HA states, so we need a light to be "on" in HA
+        assert combined_light.is_on is True
         assert combined_light.brightness == 128
 
     def test_entity_state_snapshot(
@@ -270,9 +280,11 @@ class TestBrightnessEdgeCases:
     """Test brightness behavior at edge cases and breakpoints."""
 
     @pytest.fixture
-    def combined_light(self, mock_config_entry_advanced) -> CombinedLight:
+    def combined_light(
+        self, hass: HomeAssistant, mock_config_entry_advanced
+    ) -> CombinedLight:
         """Create a CombinedLight instance with default config."""
-        return CombinedLight(mock_config_entry_advanced)
+        return CombinedLight(hass, mock_config_entry_advanced)
 
     @pytest.mark.asyncio
     async def test_brightness_at_zero_turns_off(
@@ -381,9 +393,11 @@ class TestRestoreEntity:
     """Test RestoreEntity support for state persistence."""
 
     @pytest.fixture
-    def combined_light(self, mock_config_entry_advanced) -> CombinedLight:
+    def combined_light(
+        self, hass: HomeAssistant, mock_config_entry_advanced
+    ) -> CombinedLight:
         """Create a CombinedLight instance for testing."""
-        return CombinedLight(mock_config_entry_advanced)
+        return CombinedLight(hass, mock_config_entry_advanced)
 
     @pytest.mark.asyncio
     async def test_restore_state_on(
@@ -409,7 +423,8 @@ class TestRestoreEntity:
             await combined_light.async_added_to_hass()
 
         assert combined_light._attr_is_on is True
-        assert combined_light._target_brightness == 200
+        # Target brightness is now on coordinator
+        assert combined_light._coordinator.target_brightness == 200
         assert combined_light._target_brightness_initialized is True
 
     @pytest.mark.asyncio
@@ -486,9 +501,11 @@ class TestPartialZoneSuccess:
     """Test behavior when some zones succeed and others fail."""
 
     @pytest.fixture
-    def combined_light(self, mock_config_entry_advanced) -> CombinedLight:
+    def combined_light(
+        self, hass: HomeAssistant, mock_config_entry_advanced
+    ) -> CombinedLight:
         """Create a CombinedLight instance for testing."""
-        return CombinedLight(mock_config_entry_advanced)
+        return CombinedLight(hass, mock_config_entry_advanced)
 
     @pytest.mark.asyncio
     async def test_partial_zone_failure_still_turns_on(

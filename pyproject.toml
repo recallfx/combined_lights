@@ -11,15 +11,17 @@ dependencies = [
     "pytest-homeassistant-custom-component>=0.13.45",
     "ruff>=0.8.0",
     "syrupy>=4.0.0",
-]
-
-[project.optional-dependencies]
-simulation = [
     "aiohttp>=3.9.0",
 ]
 
 [project.scripts]
-combined-lights-sim = "simulation.run_server:main"
+combined-lights-sim = "simulation.ha_simulation:run_server"
+
+[tool.setuptools.packages.find]
+include = ["simulation*", "custom_components*"]
+
+[tool.setuptools.package-data]
+"custom_components.combined_lights" = ["manifest.json", "strings.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
