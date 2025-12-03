@@ -105,24 +105,6 @@ class TestBidirectionalSync:
         # With all lights off, coordinator should be off
         assert combined_light._coordinator.is_on is False
 
-    async def test_manual_change_skipped_when_updating(
-        self, hass: HomeAssistant, combined_light: CombinedLight
-    ):
-        """Test that manual changes are skipped while updating lights."""
-        combined_light.hass = hass
-        initial_target = combined_light._coordinator.target_brightness
-
-        # Set the updating flag
-        combined_light._manual_detector.set_updating_flag(True)
-
-        hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 100})
-        combined_light._handle_manual_change("light.stage1_1")
-
-        # Should be unchanged (no task scheduled)
-        assert combined_light._coordinator.target_brightness == initial_target
-
-        combined_light._manual_detector.set_updating_flag(False)
-
     async def test_turning_off_stage_light_reduces_overall_brightness(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):

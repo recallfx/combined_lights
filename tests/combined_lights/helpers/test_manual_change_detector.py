@@ -29,11 +29,10 @@ class TestManualChangeDetector:
         assert reason == "brightness_mismatch"
         assert "light.demo" not in detector._expected_states
 
-    def test_integration_change_respected_during_update(self):
+    def test_integration_change_respected_with_context(self):
         detector = ManualChangeDetector()
         integration_ctx = Context(id="integration")
         detector.add_integration_context(integration_ctx)
-        detector.set_updating_flag(True)
         detector.track_expected_state("light.demo", 200)
 
         event = type("Evt", (), {})()

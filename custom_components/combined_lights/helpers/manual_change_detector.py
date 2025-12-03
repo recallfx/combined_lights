@@ -25,7 +25,6 @@ class ManualChangeDetector:
         self._recent_contexts: list[str] = []
         self._max_recent_contexts = 10
         self._expected_states: dict[str, int] = {}  # entity_id -> expected brightness
-        self._updating_lights = False
         self._brightness_tolerance = 5
 
     def add_integration_context(self, context: Context) -> None:
@@ -35,10 +34,6 @@ class ManualChangeDetector:
             # Keep only the last N contexts
             if len(self._recent_contexts) > self._max_recent_contexts:
                 self._recent_contexts.pop(0)
-
-    def set_updating_flag(self, updating: bool) -> None:
-        """Set the updating flag."""
-        self._updating_lights = updating
 
     def track_expected_state(self, entity_id: str, expected_brightness: int) -> None:
         """Track expected state for an entity."""
@@ -97,11 +92,6 @@ class ManualChangeDetector:
             if new_state and new_state.state == "on" and expected_brightness > 0:
                 del self._expected_states[entity_id]
                 return False, "expected_on_state"
-
-        # Priority 3: No expectation - check updating flag
-        if self._updating_lights:
-            # We're in the middle of updating, this might be a side effect
-            return False, "integration_updating"
 
         # No expectation and not our context - manual change
         return True, "external_context"

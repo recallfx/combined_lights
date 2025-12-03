@@ -200,11 +200,6 @@ class CombinedLight(LightEntity, RestoreEntity):
         if not self.hass:
             return
 
-        # Skip if we're currently updating
-        if self._manual_detector._updating_lights:
-            _LOGGER.debug("Skipping manual change handling while updating")
-            return
-
         # Get the current brightness for this entity
         state = self.hass.states.get(entity_id)
         if state is None:
@@ -427,58 +422,53 @@ class CombinedLight(LightEntity, RestoreEntity):
         Returns:
             True if at least one light was successfully controlled
         """
-        self._manual_detector.set_updating_flag(True)
         any_success = False
 
-        try:
-            # Group by brightness for efficient service calls
-            lights_on: dict[int, list[str]] = {}
-            lights_off: list[str] = []
+        # Group by brightness for efficient service calls
+        lights_on: dict[int, list[str]] = {}
+        lights_off: list[str] = []
 
-            for entity_id, brightness in changes.items():
-                if brightness > 0:
-                    if brightness not in lights_on:
-                        lights_on[brightness] = []
-                    lights_on[brightness].append(entity_id)
-                else:
-                    lights_off.append(entity_id)
+        for entity_id, brightness in changes.items():
+            if brightness > 0:
+                if brightness not in lights_on:
+                    lights_on[brightness] = []
+                lights_on[brightness].append(entity_id)
+            else:
+                lights_off.append(entity_id)
 
-            # Turn on lights grouped by brightness
-            for brightness, entities in lights_on.items():
-                # Track expected states BEFORE service call
+        # Turn on lights grouped by brightness
+        for brightness, entities in lights_on.items():
+            # Track expected states BEFORE service call
+            for entity_id in entities:
+                self._manual_detector.track_expected_state(entity_id, brightness)
+
+            try:
+                brightness_pct = brightness / 255.0 * 100
+                result = await self._light_controller.turn_on_lights(
+                    entities, brightness_pct, context
+                )
+                if result:
+                    any_success = True
+            except Exception as err:
+                _LOGGER.error("Failed to turn on lights %s: %s", entities, err)
                 for entity_id in entities:
-                    self._manual_detector.track_expected_state(entity_id, brightness)
+                    self._manual_detector.cleanup_expected_state(entity_id)
 
-                try:
-                    brightness_pct = brightness / 255.0 * 100
-                    result = await self._light_controller.turn_on_lights(
-                        entities, brightness_pct, context
-                    )
-                    if result:
-                        any_success = True
-                except Exception as err:
-                    _LOGGER.error("Failed to turn on lights %s: %s", entities, err)
-                    for entity_id in entities:
-                        self._manual_detector.cleanup_expected_state(entity_id)
+        # Turn off lights
+        if lights_off:
+            for entity_id in lights_off:
+                self._manual_detector.track_expected_state(entity_id, 0)
 
-            # Turn off lights
-            if lights_off:
+            try:
+                result = await self._light_controller.turn_off_lights(
+                    lights_off, context
+                )
+                if result:
+                    any_success = True
+            except Exception as err:
+                _LOGGER.error("Failed to turn off lights %s: %s", lights_off, err)
                 for entity_id in lights_off:
-                    self._manual_detector.track_expected_state(entity_id, 0)
-
-                try:
-                    result = await self._light_controller.turn_off_lights(
-                        lights_off, context
-                    )
-                    if result:
-                        any_success = True
-                except Exception as err:
-                    _LOGGER.error("Failed to turn off lights %s: %s", lights_off, err)
-                    for entity_id in lights_off:
-                        self._manual_detector.cleanup_expected_state(entity_id)
-
-        finally:
-            self._manual_detector.set_updating_flag(False)
+                    self._manual_detector.cleanup_expected_state(entity_id)
 
         return any_success
 
