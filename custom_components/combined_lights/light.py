@@ -195,7 +195,7 @@ class CombinedLight(LightEntity, RestoreEntity):
 
         # Skip if we're currently updating
         if self._manual_detector._updating_lights:
-            _LOGGER.debug("Skipping manual change handling while updating")
+            _LOGGER.info("SKIP manual change for %s (updating_lights=True)", entity_id)
             return
 
         # Get the new brightness from HA state
@@ -208,9 +208,23 @@ class CombinedLight(LightEntity, RestoreEntity):
         else:
             brightness = 0
 
+        _LOGGER.info(
+            "HANDLE manual change: %s state=%s brightness=%d",
+            entity_id.split(".")[-1],
+            state.state,
+            brightness,
+        )
+
         # Sync all lights from HA first so coordinator knows current state
         # This is critical for correct estimation when a light is turned off
         self._coordinator.sync_all_lights_from_ha()
+
+        # Log current state of all lights
+        lights_state = {
+            eid.split(".")[-1]: f"{l.is_on}@{l.brightness}"
+            for eid, l in self._coordinator._lights.items()
+        }
+        _LOGGER.info("  Lights state after sync: %s", lights_state)
 
         # Use coordinator to handle the change - same logic as simulation
         overall_pct, back_prop_changes = self._coordinator.handle_manual_light_change(
@@ -218,14 +232,15 @@ class CombinedLight(LightEntity, RestoreEntity):
         )
 
         _LOGGER.info(
-            "Manual change: %s -> %d, new overall: %.1f%%",
-            entity_id,
-            brightness,
+            "  Result: overall=%.1f%%, back_prop_enabled=%s, changes=%s",
             overall_pct,
+            self._back_propagation_enabled,
+            {k.split(".")[-1]: v for k, v in back_prop_changes.items()} if back_prop_changes else {},
         )
 
         # Schedule back-propagation if enabled
         if self._back_propagation_enabled and back_prop_changes:
+            _LOGGER.info("  Scheduling back-propagation for %d lights", len(back_prop_changes))
             self._schedule_back_propagation(back_prop_changes, entity_id)
 
     async def async_will_remove_from_hass(self) -> None:
@@ -347,6 +362,12 @@ class CombinedLight(LightEntity, RestoreEntity):
         self._manual_detector.set_updating_flag(True)
         any_success = False
 
+        _LOGGER.info(
+            "APPLY changes to HA: %s (context=%s)",
+            {k.split(".")[-1]: v for k, v in changes.items()},
+            context.id[:8],
+        )
+
         try:
             # Group by brightness for efficient service calls
             lights_on: dict[int, list[str]] = {}
@@ -368,6 +389,7 @@ class CombinedLight(LightEntity, RestoreEntity):
 
                 try:
                     brightness_pct = brightness / 255.0 * 100
+                    _LOGGER.info("  Calling turn_on for %s at %.1f%%", [e.split(".")[-1] for e in entities], brightness_pct)
                     result = await self._light_controller.turn_on_lights(
                         entities, brightness_pct, context
                     )
@@ -382,6 +404,8 @@ class CombinedLight(LightEntity, RestoreEntity):
             if lights_off:
                 for entity_id in lights_off:
                     self._manual_detector.track_expected_state(entity_id, 0)
+
+                _LOGGER.info("  Calling turn_off for %s", [e.split(".")[-1] for e in lights_off])
 
                 try:
                     result = await self._light_controller.turn_off_lights(
