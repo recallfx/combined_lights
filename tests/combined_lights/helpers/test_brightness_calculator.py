@@ -124,7 +124,12 @@ class TestBrightnessCalculator:
         assert estimated == 0.0
 
     def test_manual_indicator_estimation(self, mock_entry):
-        """Manual indicator should scale with stage coverage."""
+        """Manual indicator should handle unusual states correctly.
+        
+        If Stage 4 is on but Stage 1 is off, this indicates Stage 1 was
+        manually turned off. In progressive mode, Stage 1 is always on when
+        any light is on, so this is treated as "everything off" (0%).
+        """
         brightness_calc = BrightnessCalculator(mock_entry)
 
         zone_brightness = {
@@ -138,7 +143,29 @@ class TestBrightnessCalculator:
             zone_brightness
         )
 
-        assert 95 < estimated <= 100  # Stage 4 active means high brightness
+        # Stage 1 is off but Stage 4 is on - impossible in progressive model
+        # This is treated as "all off" since Stage 1 should always be on
+        assert estimated == 0.0
+
+    def test_manual_indicator_with_gap_respects_off_stage(self, mock_entry):
+        """If a middle stage is off, cap brightness below its activation point."""
+        brightness_calc = BrightnessCalculator(mock_entry)
+
+        # Stage 3 is off but Stage 4 is on - user turned off Stage 3 manually
+        zone_brightness = {
+            "stage_1": 100.0,
+            "stage_2": 100.0,
+            "stage_3": None,  # Manually turned off
+            "stage_4": 100.0,
+        }
+
+        estimated = brightness_calc.estimate_manual_indicator_from_zones(
+            zone_brightness
+        )
+
+        # Stage 3 activates at breakpoints[1] = 50%, so cap to 49%
+        # (mock_entry uses breakpoints [25, 50, 75])
+        assert estimated == 49.0
 
     def test_reverse_curve_linear(self, mock_entry):
         """Test reversing linear brightness curve."""
