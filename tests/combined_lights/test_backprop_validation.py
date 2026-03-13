@@ -15,7 +15,6 @@ from homeassistant.core import Context, Event, HomeAssistant
 from custom_components.combined_lights.helpers import (
     BrightnessCalculator,
     HACombinedLightsCoordinator,
-    LightState,
 )
 from custom_components.combined_lights.helpers.manual_change_detector import (
     ManualChangeDetector,
@@ -187,7 +186,7 @@ class TestCoordinatorStateFixed:
         assert coord.is_on is False
 
         # FIX: no internal lights should be re-marked as on
-        lights_on = [l.entity_id for l in coord.get_lights() if l.is_on]
+        lights_on = [lt.entity_id for lt in coord.get_lights() if lt.is_on]
         assert lights_on == [], (
             f"All lights should be off internally, but got: {lights_on}"
         )
@@ -372,7 +371,6 @@ class TestTurnOffFilterFixed:
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
         """Turn-off filter should still prevent turning on currently-off lights."""
-        calc = combined_light._coordinator._calculator
         combined_light._coordinator._target_brightness = 255
         combined_light._coordinator._is_on = True
 

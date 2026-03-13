@@ -10,7 +10,7 @@ and error resilience.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -328,13 +328,12 @@ class TestReversePipeline:
 
     def _setup_at(self, hass, light, pct):
         """Set up combined light at given percentage."""
-        calc = light._coordinator._calculator
         light._coordinator.turn_on(brightness=max(1, int(pct / 100 * 255)))
-        for l in light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
     async def test_wall_switch_turns_off_stage4(
         self, hass: HomeAssistant, pipeline_light: CombinedLight
@@ -547,11 +546,11 @@ class TestConcurrentKNXEvents:
     ):
         """Stages 2+3 off → combined drops to 30% (lower activation)."""
         pipeline_light._coordinator.turn_on(brightness=int(80 / 100 * 255))
-        for l in pipeline_light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
         hass.states.async_set("light.stage2", STATE_OFF)
         hass.states.async_set("light.stage3", STATE_OFF)
@@ -571,8 +570,8 @@ class TestConcurrentKNXEvents:
     ):
         """Stages 3+4 off → combined drops to 60%."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         hass.states.async_set("light.stage3", STATE_OFF)
         hass.states.async_set("light.stage4", STATE_OFF)
@@ -601,8 +600,8 @@ class TestConcurrentKNXEvents:
         results = []
         for order in (order_a, order_b):
             pipeline_light._coordinator.turn_on(brightness=255)
-            for l in pipeline_light._coordinator.get_lights():
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+            for lt in pipeline_light._coordinator.get_lights():
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
             for eid in order:
                 hass.states.async_set(eid, STATE_OFF)
@@ -629,8 +628,8 @@ class TestConcurrentKNXEvents:
     ):
         """Batch off uses the lowest activation point among turned-off stages."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         pipeline_light._pending_manual_changes.clear()
         for s in off_stages:
@@ -655,8 +654,8 @@ class TestConcurrentKNXEvents:
         override that the filter logic handles, not a brightness recalculation.
         """
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         hass.states.async_set("light.stage1", STATE_OFF)
         pipeline_light._pending_manual_changes["light.stage1"] = {
@@ -783,8 +782,8 @@ class TestStateTransitions:
     ):
         """Transitional state in batch processing is skipped."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         # Stage 3 reports on@0 (transitional)
         hass.states.async_set("light.stage3", STATE_ON, {"brightness": 0})
@@ -804,11 +803,11 @@ class TestStateTransitions:
     ):
         """Last remaining light off → combined off, no back-propagation."""
         pipeline_light._coordinator.turn_on(brightness=int(20 / 100 * 255))
-        for l in pipeline_light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
         # Only stage 1 should be on
         hass.states.async_set("light.stage1", STATE_OFF)
@@ -848,8 +847,8 @@ class TestEdgeCases:
     ):
         """Turn off stages one by one from 100% — consistent at each step."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         pipeline_light._schedule_back_propagation = lambda c, e=None: None
 
@@ -879,7 +878,7 @@ class TestEdgeCases:
         coord.reset()
         assert coord.is_on is False
         assert coord.target_brightness == 255
-        assert all(not l.is_on for l in coord.get_lights())
+        assert all(not lt.is_on for lt in coord.get_lights())
 
     def test_none_state_entity_skipped_in_sync(self, hass: HomeAssistant):
         """Entity not in hass.states is skipped without error."""
@@ -1058,8 +1057,8 @@ class TestMultiLightStages:
     ):
         """Light A changes → back-prop includes light B (same stage) but not A."""
         multi_light._coordinator.turn_on(brightness=255)
-        for l in multi_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in multi_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         hass.states.async_set("light.s1a", STATE_ON, {"brightness": 128})
 
@@ -1080,7 +1079,6 @@ class TestMultiLightStages:
 
         multi_light._coordinator.sync_all_lights_from_ha()
 
-        s1a = multi_light._coordinator._lights["light.s1a"]
         s1b = multi_light._coordinator._lights["light.s1b"]
         # s1a should keep whatever state it had before (sync skips unavailable)
         assert s1b.is_on is True
@@ -1100,8 +1098,8 @@ class TestTurnOffFilterLogic:
     ):
         """Back-prop should NOT turn on a light that is currently off in HA."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         # Stage 4 is already off in HA
         hass.states.async_set("light.stage4", STATE_OFF)
@@ -1120,13 +1118,12 @@ class TestTurnOffFilterLogic:
         self, hass: HomeAssistant, pipeline_light: CombinedLight
     ):
         """Back-prop should allow brightness adjustment of already-on lights."""
-        calc = pipeline_light._coordinator._calculator
         pipeline_light._coordinator.turn_on(brightness=int(80 / 100 * 255))
-        for l in pipeline_light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
         # Turn off stage 3
         hass.states.async_set("light.stage3", STATE_OFF)
@@ -1144,11 +1141,11 @@ class TestTurnOffFilterLogic:
     ):
         """When user turns on a light, no turn-off filter is applied."""
         pipeline_light._coordinator.turn_on(brightness=int(40 / 100 * 255))
-        for l in pipeline_light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
         # Turn ON stage 3 (was off)
         hass.states.async_set("light.stage3", STATE_ON, {"brightness": 128})
@@ -1166,8 +1163,8 @@ class TestTurnOffFilterLogic:
     ):
         """Batch processing applies filter: off lights not turned on."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         # Stage 4 already off, stage 3 turning off
         hass.states.async_set("light.stage4", STATE_OFF)
@@ -1191,8 +1188,8 @@ class TestTurnOffFilterLogic:
     ):
         """brightness=0 in back-prop is always allowed through the filter."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         # Turn off stage 2 from 100% → drops to 30%, stages 3 and 4 should turn off
         hass.states.async_set("light.stage2", STATE_OFF)
@@ -1508,16 +1505,15 @@ class TestFullScenarioChains:
         self, hass: HomeAssistant, pipeline_light: CombinedLight
     ):
         """Turn on at 80% → wall switch turns off stage 3 → dims stage 2."""
-        calc = pipeline_light._coordinator._calculator
         pipeline_light._schedule_back_propagation = lambda c, e=None: None
 
         # Step 1: Turn on at 80%
         pipeline_light._coordinator.turn_on(brightness=int(80 / 100 * 255))
-        for l in pipeline_light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
         assert pipeline_light._coordinator._lights["light.stage3"].is_on is True
 
@@ -1542,8 +1538,8 @@ class TestFullScenarioChains:
     ):
         """Start at 100%, KNX sends all 4 lights off. Combined → 0%."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         # All off via KNX
         for eid in ("light.stage1", "light.stage2", "light.stage3", "light.stage4"):
@@ -1562,8 +1558,8 @@ class TestFullScenarioChains:
     ):
         """Start at 100%, KNX turns off stages 3+4. Combined → 30%."""
         pipeline_light._coordinator.turn_on(brightness=255)
-        for l in pipeline_light._coordinator.get_lights():
-            hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
 
         for eid in ("light.stage3", "light.stage4"):
             hass.states.async_set(eid, STATE_OFF)
@@ -1587,11 +1583,11 @@ class TestFullScenarioChains:
 
         # Start at 80%
         pipeline_light._coordinator.turn_on(brightness=int(80 / 100 * 255))
-        for l in pipeline_light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
         # Wall switch dims stage 1
         hass.states.async_set("light.stage1", STATE_ON, {"brightness": 64})
@@ -1614,7 +1610,7 @@ class TestFullScenarioChains:
 
         assert pipeline_light._coordinator.target_brightness == 255
         assert all(
-            l.is_on for l in pipeline_light._coordinator.get_lights()
+            lt.is_on for lt in pipeline_light._coordinator.get_lights()
         )
 
     async def test_scenario_off_on_off_on_cycle(
@@ -1624,13 +1620,13 @@ class TestFullScenarioChains:
         for _ in range(3):
             pipeline_light._coordinator.turn_on(brightness=128)
             assert pipeline_light._coordinator.is_on is True
-            assert all(l.is_on or l.brightness == 0
-                       for l in pipeline_light._coordinator.get_lights())
+            assert all(lt.is_on or lt.brightness == 0
+                       for lt in pipeline_light._coordinator.get_lights())
 
             pipeline_light._coordinator.turn_off()
             assert pipeline_light._coordinator.is_on is False
-            assert all(l.brightness == 0
-                       for l in pipeline_light._coordinator.get_lights())
+            assert all(lt.brightness == 0
+                       for lt in pipeline_light._coordinator.get_lights())
 
     async def test_scenario_stage_by_stage_activation(
         self, hass: HomeAssistant, pipeline_light: CombinedLight
@@ -1660,11 +1656,11 @@ class TestFullScenarioChains:
         pipeline_light._coordinator._target_brightness = int(60 / 100 * 255)
         pipeline_light._coordinator._is_on = True
         pipeline_light._coordinator.apply_brightness_to_lights()
-        for l in pipeline_light._coordinator.get_lights():
-            if l.is_on:
-                hass.states.async_set(l.entity_id, "on", {"brightness": l.brightness})
+        for lt in pipeline_light._coordinator.get_lights():
+            if lt.is_on:
+                hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
             else:
-                hass.states.async_set(l.entity_id, "off", {})
+                hass.states.async_set(lt.entity_id, "off", {})
 
         # Wall switch turns off stage 2
         hass.states.async_set("light.stage2", STATE_OFF)

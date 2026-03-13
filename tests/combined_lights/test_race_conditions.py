@@ -1,7 +1,7 @@
 """Test race condition handling in manual change detection."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
