@@ -24,9 +24,13 @@ from .const import (
     CONF_STAGE_2_LIGHTS,
     CONF_STAGE_3_LIGHTS,
     CONF_STAGE_4_LIGHTS,
+    CONF_WATCHDOG_DELAY,
     DEFAULT_DEBOUNCE_DELAY,
     DEFAULT_ENABLE_BACK_PROPAGATION,
+    DEFAULT_WATCHDOG_DELAY,
     DOMAIN,
+    WATCHDOG_BRIGHTNESS_TOLERANCE,
+    WATCHDOG_MAX_RETRIES,
 )
 from .helpers import (
     BrightnessCalculator,
@@ -104,6 +108,12 @@ class CombinedLight(LightEntity, RestoreEntity):
         self._debounce_task: asyncio.Task | None = None
         self._debounce_delay = entry.data.get(
             CONF_DEBOUNCE_DELAY, DEFAULT_DEBOUNCE_DELAY
+        )
+
+        # Post-command state verification watchdog
+        self._watchdog_task: asyncio.Task | None = None
+        self._watchdog_delay = entry.data.get(
+            CONF_WATCHDOG_DELAY, DEFAULT_WATCHDOG_DELAY
         )
 
     def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
@@ -495,6 +505,8 @@ class CombinedLight(LightEntity, RestoreEntity):
             self._debounce_task.cancel()
         if self._back_prop_task and not self._back_prop_task.done():
             self._back_prop_task.cancel()
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
         await super().async_will_remove_from_hass()
 
     @property
@@ -561,6 +573,10 @@ class CombinedLight(LightEntity, RestoreEntity):
                 )
                 self._attr_is_on = False
 
+            # Schedule watchdog to verify lights reached expected state
+            # Always schedule, even on failure — KNX may have partially delivered
+            self._schedule_watchdog(changes)
+
             # Log zone brightnesses
             zone_brightness = self._coordinator.get_zone_brightness_for_ha()
             _LOGGER.info(
@@ -589,6 +605,9 @@ class CombinedLight(LightEntity, RestoreEntity):
 
             # Apply changes to actual HA lights
             await self._apply_changes_to_ha(changes, caller_ctx)
+
+            # Schedule watchdog to verify lights turned off
+            self._schedule_watchdog(changes)
 
             _LOGGER.info("Combined light turned off")
             self.async_write_ha_state()
@@ -702,7 +721,141 @@ class CombinedLight(LightEntity, RestoreEntity):
 
             async with self._lock:
                 await self._apply_changes_to_ha(changes, caller_ctx)
+
+            # Verify back-propagation results too
+            self._schedule_watchdog(changes)
         except asyncio.CancelledError:
             raise
         except Exception:
             _LOGGER.exception("Failed to apply back-propagation")
+
+    # ── Post-command state verification watchdog ──────────────────────
+
+    def _schedule_watchdog(
+        self, expected_states: dict[str, int], retry_count: int = 0
+    ) -> None:
+        """Schedule a delayed check to verify lights reached expected state.
+
+        Args:
+            expected_states: Dict mapping entity_id to expected brightness (0-255)
+            retry_count: How many retries have already been attempted
+        """
+        if not self.hass:
+            return
+
+        # Cancel any existing watchdog — only the latest command matters
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+
+        self._watchdog_task = self.hass.async_create_task(
+            self._watchdog_verify(expected_states, retry_count)
+        )
+
+    async def _watchdog_verify(
+        self, expected_states: dict[str, int], retry_count: int = 0
+    ) -> None:
+        """Verify lights reached expected state after a delay.
+
+        If mismatches are found:
+          - retry_count < MAX_RETRIES → retry the failed commands
+          - retry_count >= MAX_RETRIES → re-sync coordinator from HA (accept reality)
+        """
+        try:
+            await asyncio.sleep(self._watchdog_delay)
+        except asyncio.CancelledError:
+            return
+
+        if not self.hass:
+            return
+
+        mismatches: dict[str, dict] = {}
+
+        for entity_id, expected_brightness in expected_states.items():
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                # Can't verify — skip
+                continue
+
+            actual_on = state.state == "on"
+            actual_brightness = state.attributes.get("brightness")
+            expected_on = expected_brightness > 0
+
+            if expected_on and not actual_on:
+                # Should be on but is off
+                mismatches[entity_id] = {
+                    "expected": expected_brightness,
+                    "actual": 0,
+                    "issue": "expected_on_got_off",
+                }
+            elif not expected_on and actual_on:
+                # Should be off but is on
+                mismatches[entity_id] = {
+                    "expected": 0,
+                    "actual": actual_brightness or 0,
+                    "issue": "expected_off_got_on",
+                }
+            elif expected_on and actual_on and actual_brightness is not None:
+                diff = abs(actual_brightness - expected_brightness)
+                if diff > WATCHDOG_BRIGHTNESS_TOLERANCE:
+                    mismatches[entity_id] = {
+                        "expected": expected_brightness,
+                        "actual": actual_brightness,
+                        "issue": f"brightness_drift_{diff}",
+                    }
+
+        if not mismatches:
+            _LOGGER.debug("Watchdog: all %d lights verified OK", len(expected_states))
+            return
+
+        _LOGGER.warning(
+            "Watchdog: %d/%d lights mismatched after %.1fs: %s",
+            len(mismatches),
+            len(expected_states),
+            self._watchdog_delay,
+            {
+                eid.split(".")[-1]: f"expected={m['expected']} actual={m['actual']} ({m['issue']})"
+                for eid, m in mismatches.items()
+            },
+        )
+
+        if retry_count < WATCHDOG_MAX_RETRIES:
+            # Retry only the mismatched commands
+            retry_changes = {
+                eid: m["expected"] for eid, m in mismatches.items()
+            }
+            _LOGGER.info(
+                "Watchdog: retrying %d lights (attempt %d/%d)",
+                len(retry_changes),
+                retry_count + 1,
+                WATCHDOG_MAX_RETRIES,
+            )
+
+            caller_ctx = Context(id=str(uuid.uuid4()), user_id=None)
+            self._manual_detector.add_integration_context(caller_ctx)
+
+            try:
+                async with self._lock:
+                    await self._apply_changes_to_ha(retry_changes, caller_ctx)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("Watchdog: retry failed")
+                return
+
+            # Schedule another verification after the retry
+            self._schedule_watchdog(retry_changes, retry_count + 1)
+        else:
+            # Max retries reached — accept reality and re-sync
+            _LOGGER.warning(
+                "Watchdog: max retries reached, re-syncing coordinator from HA"
+            )
+            self._coordinator.sync_all_lights_from_ha()
+            overall_pct = self._coordinator._estimate_overall_from_current_lights()
+            if overall_pct > 0:
+                self._coordinator._target_brightness = max(
+                    1, min(255, int(overall_pct / 100 * 255))
+                )
+            self._coordinator._is_on = any(
+                l.is_on for l in self._coordinator._lights.values()
+            )
+            self.async_schedule_update_ha_state()

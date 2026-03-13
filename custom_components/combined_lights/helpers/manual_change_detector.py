@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from homeassistant.core import Context, Event
 
@@ -16,7 +17,8 @@ class ManualChangeDetector:
         """Initialize the manual change detector."""
         self._recent_contexts: list[str] = []
         self._max_recent_contexts = 20
-        self._expected_states: dict[str, int] = {}
+        self._expected_states: dict[str, tuple[int, float]] = {}  # entity -> (brightness, timestamp)
+        self._expected_state_timeout = 10.0  # seconds before expected state expires
         self._updating_lights = False
         self._brightness_tolerance = 5
         # Track entities waiting for brightness confirmation after on@0 state
@@ -38,9 +40,39 @@ class ManualChangeDetector:
         _LOGGER.debug("Updating flag set to %s", updating)
 
     def track_expected_state(self, entity_id: str, expected_brightness: int) -> None:
-        """Track expected state for an entity."""
-        self._expected_states[entity_id] = expected_brightness
+        """Track expected state for an entity with timestamp for expiry."""
+        self._expected_states[entity_id] = (expected_brightness, time.monotonic())
         _LOGGER.debug("Tracking expected state: %s -> %d", entity_id, expected_brightness)
+
+    def _expire_stale_entries(self) -> None:
+        """Remove expected states and pending brightness entries that have timed out."""
+        now = time.monotonic()
+
+        # Expire expected states
+        expired = [
+            eid for eid, (_, ts) in self._expected_states.items()
+            if now - ts > self._expected_state_timeout
+        ]
+        for eid in expired:
+            _LOGGER.info(
+                "Expected state expired for %s (no matching event after %.0fs)",
+                eid.split(".")[-1],
+                self._expected_state_timeout,
+            )
+            del self._expected_states[eid]
+
+        # Expire pending brightness (uses time.time(), not monotonic)
+        wall_now = time.time()
+        expired_pending = [
+            eid for eid, ts in self._pending_brightness.items()
+            if wall_now - ts > self._pending_brightness_timeout * 2
+        ]
+        for eid in expired_pending:
+            _LOGGER.info(
+                "Pending brightness expired for %s (no confirmation)",
+                eid.split(".")[-1],
+            )
+            del self._pending_brightness[eid]
 
     def is_manual_change(self, entity_id: str, event: Event) -> tuple[bool, str]:
         """Determine if a state change was manual intervention.
@@ -52,12 +84,16 @@ class ManualChangeDetector:
         Returns:
             Tuple of (is_manual, reason)
         """
+        # Actively expire stale entries on every check
+        self._expire_stale_entries()
+
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
         actual_brightness = (
             new_state.attributes.get("brightness") if new_state else None
         )
-        expected_brightness = self._expected_states.get(entity_id)
+        expected_entry = self._expected_states.get(entity_id)
+        expected_brightness = expected_entry[0] if expected_entry else None
         event_context_id = event.context.id if event.context else "none"
         context_is_ours = event.context and event.context.id in self._recent_contexts
         
@@ -81,14 +117,12 @@ class ManualChangeDetector:
             (actual_brightness is None or actual_brightness == 0) and
             old_state and old_state.state == "off"):
             # Track this entity as pending brightness confirmation
-            import time
             self._pending_brightness[entity_id] = time.time()
             _LOGGER.info("  -> NOT manual (transitional_on_state, waiting for brightness)")
             return False, "transitional_on_state"
 
         # Check if this is a brightness confirmation for a pending transitional state
         if entity_id in self._pending_brightness:
-            import time
             pending_time = self._pending_brightness[entity_id]
             elapsed = time.time() - pending_time
             del self._pending_brightness[entity_id]
