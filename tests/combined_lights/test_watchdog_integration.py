@@ -196,7 +196,9 @@ class TestDroppedTurnOn:
     """KNX telegram for turn_on is lost — light stays off."""
 
     async def test_single_light_dropped_turn_on_retried(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Dropped turn-on for one light should be retried by watchdog."""
@@ -215,7 +217,9 @@ class TestDroppedTurnOn:
         assert state.attributes["brightness"] > 0
 
     async def test_all_lights_dropped_turn_on(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """All turn-on telegrams dropped — watchdog retries all."""
@@ -232,7 +236,9 @@ class TestDroppedTurnOn:
             assert state.state == "on", f"{eid} should be on after watchdog retry"
 
     async def test_permanently_dropped_triggers_resync(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Permanently unresponsive light → watchdog gives up and re-syncs."""
@@ -259,7 +265,9 @@ class TestDroppedTurnOff:
     """KNX telegram for turn_off is lost — light stays on."""
 
     async def test_single_light_dropped_turn_off_retried(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Dropped turn-off should be retried by watchdog."""
@@ -279,7 +287,9 @@ class TestDroppedTurnOff:
         assert state.state == "off"
 
     async def test_persistent_turn_off_failure_resyncs(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Light refuses to turn off → coordinator re-syncs to 'on' state."""
@@ -307,7 +317,9 @@ class TestBrightnessDrift:
     """Light turns on but at wrong brightness (KNX dimmer rounding, etc.)."""
 
     async def test_small_drift_within_tolerance_accepted(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Brightness within tolerance should be accepted without retry.
@@ -317,7 +329,8 @@ class TestBrightnessDrift:
         expected = 128
         # Set actual brightness within tolerance
         hass.states.async_set(
-            "light.stage1", STATE_ON,
+            "light.stage1",
+            STATE_ON,
             {"brightness": expected + WATCHDOG_BRIGHTNESS_TOLERANCE - 1},
         )
 
@@ -328,14 +341,17 @@ class TestBrightnessDrift:
         assert calls_after == calls_before  # No retry
 
     async def test_large_drift_triggers_retry(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Brightness beyond tolerance should trigger a retry."""
         expected = 128
         # Set actual brightness well beyond tolerance
         hass.states.async_set(
-            "light.stage1", STATE_ON,
+            "light.stage1",
+            STATE_ON,
             {"brightness": expected + WATCHDOG_BRIGHTNESS_TOLERANCE + 20},
         )
 
@@ -346,7 +362,9 @@ class TestBrightnessDrift:
         assert calls_after > calls_before  # Should retry
 
     async def test_large_drift_end_to_end(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """End-to-end: light reports wildly wrong brightness, watchdog corrects."""
@@ -370,7 +388,9 @@ class TestBrightnessDrift:
         assert state.attributes["brightness"] > 10
 
     async def test_drift_on_multiple_lights(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Multiple lights drifting should all be corrected."""
@@ -403,7 +423,9 @@ class TestPartialDelivery:
     """Some lights respond, others don't — mixed success."""
 
     async def test_only_failed_lights_retried(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Only the lights that failed should be retried, not the successful ones."""
@@ -416,8 +438,7 @@ class TestPartialDelivery:
 
         # Count retry calls per entity
         retry_entities = [
-            call[1][0] for call in faulty_controller.call_log
-            if call[0] == "turn_on"
+            call[1][0] for call in faulty_controller.call_log if call[0] == "turn_on"
         ]
 
         # stage1 should be called once (initial), stage2 twice (initial + retry)
@@ -427,7 +448,9 @@ class TestPartialDelivery:
         assert stage2_calls == 2, f"stage2 called {stage2_calls} times, expected 2"
 
     async def test_mixed_on_off_partial_failure(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """When some lights turn on and others off, partial failure handled correctly."""
@@ -457,7 +480,9 @@ class TestPersistentFailureResync:
     """Light never responds — watchdog gives up and re-syncs coordinator."""
 
     async def test_resync_updates_coordinator_brightness(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """After giving up, coordinator brightness should match actual HA state."""
@@ -481,7 +506,9 @@ class TestPersistentFailureResync:
         assert light.brightness == 100
 
     async def test_resync_after_turn_off_failure(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Failed turn-off → re-sync accepts lights are still on."""
@@ -510,7 +537,9 @@ class TestGatewayLatency:
     """Light responds after initial command but before watchdog fires."""
 
     async def test_late_response_before_watchdog_no_retry(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """If light responds late but before watchdog, no retry needed."""
@@ -527,7 +556,8 @@ class TestGatewayLatency:
         # Watchdog should see light is on and not retry
         # No additional turn_on calls for stage1 beyond initial
         stage1_on_calls = [
-            c for c in faulty_controller.call_log
+            c
+            for c in faulty_controller.call_log
             if c[0] == "turn_on" and "light.stage1" in c[1]
         ]
         assert len(stage1_on_calls) == 1
@@ -542,7 +572,9 @@ class TestConcurrentManualChange:
     """User touches a wall switch while watchdog is pending."""
 
     async def test_new_command_cancels_pending_watchdog(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """A new turn_on should cancel the previous command's watchdog."""
@@ -558,10 +590,14 @@ class TestConcurrentManualChange:
         second_task = watchdog_light._watchdog_task
 
         assert first_task != second_task
-        assert first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        assert (
+            first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        )
 
     async def test_turn_off_cancels_turn_on_watchdog(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Turn off should cancel pending turn-on watchdog."""
@@ -574,10 +610,16 @@ class TestConcurrentManualChange:
         turn_off_task = watchdog_light._watchdog_task
 
         assert turn_on_task != turn_off_task
-        assert turn_on_task.cancelling() > 0 or turn_on_task.cancelled() or turn_on_task.done()
+        assert (
+            turn_on_task.cancelling() > 0
+            or turn_on_task.cancelled()
+            or turn_on_task.done()
+        )
 
     async def test_rapid_commands_only_last_watchdog_active(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Rapid sequence of commands → only final command's watchdog runs."""
@@ -604,7 +646,9 @@ class TestBackPropWatchdog:
     """Watchdog verifies back-propagation results too."""
 
     async def test_back_prop_failure_retried(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Back-propagation that fails should be caught by watchdog."""
@@ -636,7 +680,9 @@ class TestUnavailableEntities:
     """Watchdog behavior with entities in unavailable/unknown states."""
 
     async def test_unavailable_light_skipped(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Unavailable lights should be skipped by watchdog, not retried."""
@@ -649,7 +695,9 @@ class TestUnavailableEntities:
         assert calls_after == calls_before  # No retry
 
     async def test_unknown_light_skipped(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Unknown lights should be skipped by watchdog."""
@@ -662,12 +710,16 @@ class TestUnavailableEntities:
         assert calls_after == calls_before
 
     async def test_nonexistent_entity_skipped(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Entity not in HA at all should be skipped."""
         calls_before = len(faulty_controller.call_log)
-        await watchdog_light._watchdog_verify({"light.does_not_exist": 128}, retry_count=0)
+        await watchdog_light._watchdog_verify(
+            {"light.does_not_exist": 128}, retry_count=0
+        )
         calls_after = len(faulty_controller.call_log)
 
         assert calls_after == calls_before
@@ -682,7 +734,9 @@ class TestFullScenarios:
     """End-to-end scenarios combining multiple failure modes."""
 
     async def test_turn_on_partial_drop_watchdog_fixes_then_turn_off(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Turn on with partial drop → watchdog fixes → then clean turn off."""
@@ -705,7 +759,9 @@ class TestFullScenarios:
             assert hass.states.get(eid).state == "off"
 
     async def test_turn_on_wrong_brightness_corrected_then_dim(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Turn on with wrong brightness → watchdog corrects → then dim down."""
@@ -724,7 +780,9 @@ class TestFullScenarios:
         assert state.attributes["brightness"] > 10
 
     async def test_gateway_down_total_failure_resync(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Complete gateway failure → all commands dropped → resync accepts off state."""
@@ -742,7 +800,9 @@ class TestFullScenarios:
         assert watchdog_light._coordinator.is_on is False
 
     async def test_intermittent_failure_across_stages(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Different stages fail intermittently — all eventually corrected."""
@@ -759,15 +819,18 @@ class TestFullScenarios:
             assert state.state == "on", f"{eid} should be on after retry"
 
     async def test_watchdog_with_multi_light_stages(
-        self, hass: HomeAssistant,
+        self,
+        hass: HomeAssistant,
     ):
         """Multiple lights per stage — each verified independently."""
-        entry = make_entry(stages={
-            "stage_1_lights": ["light.s1a", "light.s1b"],
-            "stage_2_lights": ["light.s2a"],
-            "stage_3_lights": ["light.stage3"],
-            "stage_4_lights": ["light.stage4"],
-        })
+        entry = make_entry(
+            stages={
+                "stage_1_lights": ["light.s1a", "light.s1b"],
+                "stage_2_lights": ["light.s2a"],
+                "stage_3_lights": ["light.stage3"],
+                "stage_4_lights": ["light.stage4"],
+            }
+        )
         controller = FaultyLightController(hass)
 
         light = CombinedLight(hass, entry)
@@ -800,7 +863,8 @@ class TestWatchdogEdgeCases:
     """Corner cases in watchdog behavior."""
 
     async def test_watchdog_with_zero_delay(
-        self, hass: HomeAssistant,
+        self,
+        hass: HomeAssistant,
     ):
         """Watchdog with 0 delay should still work."""
         entry = make_entry(watchdog_delay=0.0)
@@ -821,7 +885,9 @@ class TestWatchdogEdgeCases:
         assert hass.states.get("light.stage1").state == "on"
 
     async def test_light_turned_on_with_no_brightness_attr(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Light reports 'on' but no brightness attribute — should not retry."""
@@ -836,13 +902,16 @@ class TestWatchdogEdgeCases:
         assert calls_after == calls_before
 
     async def test_watchdog_tolerance_boundary(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Brightness exactly at tolerance boundary should be accepted."""
         expected = 128
         hass.states.async_set(
-            "light.stage1", STATE_ON,
+            "light.stage1",
+            STATE_ON,
             {"brightness": expected + WATCHDOG_BRIGHTNESS_TOLERANCE},
         )
 
@@ -853,13 +922,16 @@ class TestWatchdogEdgeCases:
         assert calls_after == calls_before  # Exactly at tolerance = OK
 
     async def test_watchdog_one_past_tolerance_retries(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Brightness one unit past tolerance should trigger retry."""
         expected = 128
         hass.states.async_set(
-            "light.stage1", STATE_ON,
+            "light.stage1",
+            STATE_ON,
             {"brightness": expected + WATCHDOG_BRIGHTNESS_TOLERANCE + 1},
         )
 
@@ -870,7 +942,9 @@ class TestWatchdogEdgeCases:
         assert calls_after > calls_before  # Should retry
 
     async def test_empty_changes_no_watchdog(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
     ):
         """Empty expected_states should not crash or schedule anything."""
         watchdog_light._watchdog_task = None
@@ -878,7 +952,9 @@ class TestWatchdogEdgeCases:
         # Should complete without error
 
     async def test_off_light_expected_off_no_retry(
-        self, hass: HomeAssistant, watchdog_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
         faulty_controller: FaultyLightController,
     ):
         """Light expected off and is off should not be retried."""

@@ -63,7 +63,9 @@ class TestWatchdogScheduling:
         second_task = combined_light._watchdog_task
 
         assert first_task != second_task
-        assert first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        assert (
+            first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        )
 
     def test_no_watchdog_without_hass(self, combined_light: CombinedLight):
         """Watchdog should not be created if hass is None."""
@@ -231,9 +233,7 @@ class TestWatchdogRetryLogic:
 
         combined_light._apply_changes_to_ha = mock_apply
 
-        await combined_light._watchdog_verify(
-            {"light.stage1": 128}, retry_count=0
-        )
+        await combined_light._watchdog_verify({"light.stage1": 128}, retry_count=0)
 
         # Should have retried once
         assert apply_count == 1
@@ -295,9 +295,7 @@ class TestWatchdogRetryLogic:
         combined_light._apply_changes_to_ha = mock_apply
 
         # Should not raise
-        await combined_light._watchdog_verify(
-            {"light.stage1": 128}, retry_count=0
-        )
+        await combined_light._watchdog_verify({"light.stage1": 128}, retry_count=0)
 
 
 class TestWatchdogIntegration:
@@ -390,7 +388,9 @@ class TestWatchdogEdgeCases:
         second_task = combined_light._watchdog_task
 
         assert first_task != second_task
-        assert first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        assert (
+            first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        )
 
     async def test_watchdog_with_empty_expected_states(
         self, hass: HomeAssistant, combined_light: CombinedLight
@@ -404,7 +404,9 @@ class TestWatchdogEdgeCases:
     ):
         """All mismatched lights should be retried in one batch."""
         hass.states.async_set("light.stage1", STATE_OFF)  # Should be on
-        hass.states.async_set("light.stage2", STATE_ON, {"brightness": 50})  # Should be 200
+        hass.states.async_set(
+            "light.stage2", STATE_ON, {"brightness": 50}
+        )  # Should be 200
 
         retried = {}
 

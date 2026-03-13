@@ -317,9 +317,7 @@ class HACombinedLightsCoordinator:
         if any_on:
             self._target_brightness = max(1, min(255, int(overall_pct / 100 * 255)))
             # Calculate back-propagation changes (excluding the changed light)
-            back_prop_changes = self.apply_back_propagation(
-                exclude_entity_id=entity_id
-            )
+            back_prop_changes = self.apply_back_propagation(exclude_entity_id=entity_id)
         else:
             # All lights off — don't run back-propagation as it would
             # re-mark internal lights as on using the stale target brightness

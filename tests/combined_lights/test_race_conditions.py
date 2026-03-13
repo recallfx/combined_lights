@@ -97,7 +97,9 @@ class TestTransitionalOnState:
         assert not is_manual
         assert reason == "transitional_on_state"
 
-    def test_transitional_on_state_none_brightness(self, detector: ManualChangeDetector):
+    def test_transitional_on_state_none_brightness(
+        self, detector: ManualChangeDetector
+    ):
         """Transitional state with None brightness should not be manual."""
         event = create_state_event(
             "light.test",
@@ -263,15 +265,11 @@ class TestDebounceQueueing:
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
         """New changes should cancel previous debounce task."""
-        event1 = create_state_event(
-            "light.stage1", "on", 255, "off", None
-        )
+        event1 = create_state_event("light.stage1", "on", 255, "off", None)
         combined_light._queue_manual_change("light.stage1", event1)
         first_task = combined_light._debounce_task
 
-        event2 = create_state_event(
-            "light.stage2", "on", 255, "off", None
-        )
+        event2 = create_state_event("light.stage2", "on", 255, "off", None)
         combined_light._queue_manual_change("light.stage2", event2)
         second_task = combined_light._debounce_task
 
@@ -279,7 +277,9 @@ class TestDebounceQueueing:
         assert first_task != second_task
         # First task should be in cancelling state (cancel() was called)
         # Note: cancelled() returns False until the task actually finishes
-        assert first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        assert (
+            first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        )
 
 
 class TestManualTurnOffFiltering:
@@ -436,9 +436,7 @@ class TestHACoordinatorTransitionalState:
         assert light.is_on is True
         assert light.brightness == 1  # minimum, not 255
 
-    async def test_sync_actual_brightness(
-        self, hass: HomeAssistant, mock_entry
-    ):
+    async def test_sync_actual_brightness(self, hass: HomeAssistant, mock_entry):
         """Syncing actual brightness should work normally."""
         from custom_components.combined_lights.helpers import (
             BrightnessCalculator,

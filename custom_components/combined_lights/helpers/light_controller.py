@@ -77,7 +77,9 @@ class LightController:
             )
         except TimeoutError:
             _LOGGER.error(
-                "Timeout controlling lights %s (%.0fs)", light_entities, SERVICE_CALL_TIMEOUT
+                "Timeout controlling lights %s (%.0fs)",
+                light_entities,
+                SERVICE_CALL_TIMEOUT,
             )
         except (ServiceNotFound, ValueError) as err:
             _LOGGER.error("Failed to control lights %s: %s", light_entities, err)
@@ -122,7 +124,9 @@ class LightController:
             _LOGGER.debug("Called light.turn_off for %s", light_entities)
         except TimeoutError:
             _LOGGER.error(
-                "Timeout turning off lights %s (%.0fs)", light_entities, SERVICE_CALL_TIMEOUT
+                "Timeout turning off lights %s (%.0fs)",
+                light_entities,
+                SERVICE_CALL_TIMEOUT,
             )
         except (ServiceNotFound, ValueError) as err:
             _LOGGER.error("Failed to turn off lights %s: %s", light_entities, err)

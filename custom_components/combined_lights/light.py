@@ -221,7 +221,7 @@ class CombinedLight(LightEntity, RestoreEntity):
     def _queue_manual_change(self, entity_id: str, event: Event) -> None:
         """Queue a manual change for debounced processing.
 
-        This collects concurrent external changes (e.g., KNX "all off") 
+        This collects concurrent external changes (e.g., KNX "all off")
         before processing to avoid race conditions.
         """
         new_state = event.data.get("new_state")
@@ -479,7 +479,9 @@ class CombinedLight(LightEntity, RestoreEntity):
             "  Result: overall=%.1f%%, back_prop_enabled=%s, changes=%s",
             overall_pct,
             self._back_propagation_enabled,
-            {k.split(".")[-1]: v for k, v in back_prop_changes.items()} if back_prop_changes else {},
+            {k.split(".")[-1]: v for k, v in back_prop_changes.items()}
+            if back_prop_changes
+            else {},
         )
 
         # Filter back-propagation for turn-off intent: don't turn on currently-off
@@ -504,7 +506,9 @@ class CombinedLight(LightEntity, RestoreEntity):
 
         # Schedule back-propagation if enabled
         if self._back_propagation_enabled and back_prop_changes:
-            _LOGGER.info("  Scheduling back-propagation for %d lights", len(back_prop_changes))
+            _LOGGER.info(
+                "  Scheduling back-propagation for %d lights", len(back_prop_changes)
+            )
             self._schedule_back_propagation(back_prop_changes, entity_id)
 
     async def async_will_remove_from_hass(self) -> None:
@@ -664,7 +668,11 @@ class CombinedLight(LightEntity, RestoreEntity):
 
                 try:
                     brightness_pct = brightness / 255.0 * 100
-                    _LOGGER.info("  Calling turn_on for %s at %.1f%%", [e.split(".")[-1] for e in entities], brightness_pct)
+                    _LOGGER.info(
+                        "  Calling turn_on for %s at %.1f%%",
+                        [e.split(".")[-1] for e in entities],
+                        brightness_pct,
+                    )
                     result = await self._light_controller.turn_on_lights(
                         entities, brightness_pct, context
                     )
@@ -680,7 +688,9 @@ class CombinedLight(LightEntity, RestoreEntity):
                 for entity_id in lights_off:
                     self._manual_detector.track_expected_state(entity_id, 0)
 
-                _LOGGER.info("  Calling turn_off for %s", [e.split(".")[-1] for e in lights_off])
+                _LOGGER.info(
+                    "  Calling turn_off for %s", [e.split(".")[-1] for e in lights_off]
+                )
 
                 try:
                     result = await self._light_controller.turn_off_lights(
@@ -822,16 +832,16 @@ class CombinedLight(LightEntity, RestoreEntity):
             len(expected_states),
             self._watchdog_delay,
             {
-                eid.split(".")[-1]: f"expected={m['expected']} actual={m['actual']} ({m['issue']})"
+                eid.split(".")[
+                    -1
+                ]: f"expected={m['expected']} actual={m['actual']} ({m['issue']})"
                 for eid, m in mismatches.items()
             },
         )
 
         if retry_count < WATCHDOG_MAX_RETRIES:
             # Retry only the mismatched commands
-            retry_changes = {
-                eid: m["expected"] for eid, m in mismatches.items()
-            }
+            retry_changes = {eid: m["expected"] for eid, m in mismatches.items()}
             _LOGGER.info(
                 "Watchdog: retrying %d lights (attempt %d/%d)",
                 len(retry_changes),

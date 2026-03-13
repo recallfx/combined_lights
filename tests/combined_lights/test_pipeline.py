@@ -96,8 +96,12 @@ def make_entry(
 ) -> MagicMock:
     """Create a ConfigEntry mock with sensible defaults."""
     breakpoints = breakpoints or [30, 60, 90]
-    default_curves = {"stage_1_curve": "linear", "stage_2_curve": "linear",
-                      "stage_3_curve": "linear", "stage_4_curve": "linear"}
+    default_curves = {
+        "stage_1_curve": "linear",
+        "stage_2_curve": "linear",
+        "stage_3_curve": "linear",
+        "stage_4_curve": "linear",
+    }
     curve_data = {**default_curves, **(curves or {})}
 
     if stages is None:
@@ -143,12 +147,14 @@ def pipeline_entry():
 @pytest.fixture
 def multi_light_entry():
     """Config entry with multiple lights per stage."""
-    return make_entry(stages={
-        "stage_1_lights": ["light.s1a", "light.s1b"],
-        "stage_2_lights": ["light.s2a", "light.s2b"],
-        "stage_3_lights": ["light.stage3"],
-        "stage_4_lights": ["light.stage4"],
-    })
+    return make_entry(
+        stages={
+            "stage_1_lights": ["light.s1a", "light.s1b"],
+            "stage_2_lights": ["light.s2a", "light.s2b"],
+            "stage_3_lights": ["light.stage3"],
+            "stage_4_lights": ["light.stage4"],
+        }
+    )
 
 
 @pytest.fixture
@@ -263,7 +269,9 @@ class TestForwardPipeline:
         self, hass: HomeAssistant, pipeline_light: CombinedLight
     ):
         """At 1%, stage 1 on with very low brightness."""
-        changes = pipeline_light._coordinator.turn_on(brightness=max(1, int(1 / 100 * 255)))
+        changes = pipeline_light._coordinator.turn_on(
+            brightness=max(1, int(1 / 100 * 255))
+        )
         assert 0 < changes["light.stage1"] <= 10
         assert changes["light.stage2"] == 0
 
@@ -314,7 +322,7 @@ class TestForwardPipeline:
 
         for s in range(1, 4):
             assert first_on[s] <= first_on.get(s + 1, 101), (
-                f"Stage {s} activated at {first_on[s]}% but stage {s+1} at {first_on.get(s+1)}"
+                f"Stage {s} activated at {first_on[s]}% but stage {s + 1} at {first_on.get(s + 1)}"
             )
 
 
@@ -343,7 +351,9 @@ class TestReversePipeline:
         hass.states.async_set("light.stage4", STATE_OFF)
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage4")
 
         target_pct = pipeline_light._coordinator.target_brightness / 255 * 100
@@ -395,7 +405,9 @@ class TestReversePipeline:
         hass.states.async_set("light.stage3", STATE_ON, {"brightness": 128})
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage3")
 
         target_pct = pipeline_light._coordinator.target_brightness / 255 * 100
@@ -410,7 +422,9 @@ class TestReversePipeline:
         hass.states.async_set("light.stage1", STATE_ON, {"brightness": new_bri})
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage1")
 
         target_pct = pipeline_light._coordinator.target_brightness / 255 * 100
@@ -424,7 +438,9 @@ class TestReversePipeline:
         hass.states.async_set("light.stage4", STATE_OFF)
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage4")
 
         assert "light.stage4" not in scheduled
@@ -438,7 +454,9 @@ class TestReversePipeline:
         hass.states.async_set("light.stage4", STATE_OFF)
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage4")
 
         assert scheduled == {}
@@ -455,10 +473,14 @@ class TestRoundtripConsistency:
     @pytest.mark.parametrize("curve", ["linear", "quadratic", "cubic", "sqrt", "cbrt"])
     def test_forward_reverse_roundtrip(self, curve: str):
         """Set combined → read stages → reverse estimate → should match."""
-        entry = make_entry(curves={
-            "stage_1_curve": curve, "stage_2_curve": curve,
-            "stage_3_curve": curve, "stage_4_curve": curve,
-        })
+        entry = make_entry(
+            curves={
+                "stage_1_curve": curve,
+                "stage_2_curve": curve,
+                "stage_3_curve": curve,
+                "stage_4_curve": curve,
+            }
+        )
         calc = BrightnessCalculator(entry)
 
         for pct in range(5, 101, 5):
@@ -501,10 +523,14 @@ class TestRoundtripConsistency:
     @pytest.mark.parametrize("curve", ["linear", "quadratic", "cubic", "sqrt", "cbrt"])
     def test_single_light_reverse_then_forward(self, curve: str):
         """Set zone brightness, reverse to overall, forward to zone — matches."""
-        entry = make_entry(curves={
-            "stage_1_curve": curve, "stage_2_curve": curve,
-            "stage_3_curve": curve, "stage_4_curve": curve,
-        })
+        entry = make_entry(
+            curves={
+                "stage_1_curve": curve,
+                "stage_2_curve": curve,
+                "stage_3_curve": curve,
+                "stage_4_curve": curve,
+            }
+        )
         calc = BrightnessCalculator(entry)
 
         for stage in range(1, 5):
@@ -533,7 +559,9 @@ class TestConcurrentKNXEvents:
         for eid in ("light.stage1", "light.stage2", "light.stage3", "light.stage4"):
             hass.states.async_set(eid, STATE_OFF)
             pipeline_light._pending_manual_changes[eid] = {
-                "state": "off", "brightness": None, "timestamp": 0,
+                "state": "off",
+                "brightness": None,
+                "timestamp": 0,
             }
 
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -556,7 +584,9 @@ class TestConcurrentKNXEvents:
         hass.states.async_set("light.stage3", STATE_OFF)
         for eid in ("light.stage2", "light.stage3"):
             pipeline_light._pending_manual_changes[eid] = {
-                "state": "off", "brightness": None, "timestamp": 0,
+                "state": "off",
+                "brightness": None,
+                "timestamp": 0,
             }
 
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -577,7 +607,9 @@ class TestConcurrentKNXEvents:
         hass.states.async_set("light.stage4", STATE_OFF)
         for eid in ("light.stage3", "light.stage4"):
             pipeline_light._pending_manual_changes[eid] = {
-                "state": "off", "brightness": None, "timestamp": 0,
+                "state": "off",
+                "brightness": None,
+                "timestamp": 0,
             }
 
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -586,13 +618,19 @@ class TestConcurrentKNXEvents:
         target_pct = pipeline_light._coordinator.target_brightness / 255 * 100
         assert abs(target_pct - 60.0) < 2.0, f"Expected ~60%, got {target_pct:.1f}%"
 
-    @pytest.mark.parametrize("order_a,order_b", [
-        (["light.stage2", "light.stage3"], ["light.stage3", "light.stage2"]),
-        (["light.stage3", "light.stage4"], ["light.stage4", "light.stage3"]),
-    ])
+    @pytest.mark.parametrize(
+        "order_a,order_b",
+        [
+            (["light.stage2", "light.stage3"], ["light.stage3", "light.stage2"]),
+            (["light.stage3", "light.stage4"], ["light.stage4", "light.stage3"]),
+        ],
+    )
     async def test_simultaneous_off_order_independent(
-        self, hass: HomeAssistant, pipeline_light: CombinedLight,
-        order_a: list[str], order_b: list[str],
+        self,
+        hass: HomeAssistant,
+        pipeline_light: CombinedLight,
+        order_a: list[str],
+        order_b: list[str],
     ):
         """Result is the same regardless of dict insertion order."""
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -608,7 +646,9 @@ class TestConcurrentKNXEvents:
             pipeline_light._pending_manual_changes.clear()
             for eid in order:
                 pipeline_light._pending_manual_changes[eid] = {
-                    "state": "off", "brightness": None, "timestamp": 0,
+                    "state": "off",
+                    "brightness": None,
+                    "timestamp": 0,
                 }
             await pipeline_light._process_pending_manual_changes()
             results.append(pipeline_light._coordinator.target_brightness)
@@ -617,14 +657,20 @@ class TestConcurrentKNXEvents:
             f"Order dependence: {results[0]} vs {results[1]}"
         )
 
-    @pytest.mark.parametrize("off_stages,expected_pct", [
-        ([2, 3], 30.0),  # min(30%, 60%)
-        ([2, 4], 30.0),  # min(30%, 90%)
-        ([3, 4], 60.0),  # min(60%, 90%)
-    ])
+    @pytest.mark.parametrize(
+        "off_stages,expected_pct",
+        [
+            ([2, 3], 30.0),  # min(30%, 60%)
+            ([2, 4], 30.0),  # min(30%, 90%)
+            ([3, 4], 60.0),  # min(60%, 90%)
+        ],
+    )
     async def test_simultaneous_off_uses_lowest_activation(
-        self, hass: HomeAssistant, pipeline_light: CombinedLight,
-        off_stages: list[int], expected_pct: float,
+        self,
+        hass: HomeAssistant,
+        pipeline_light: CombinedLight,
+        off_stages: list[int],
+        expected_pct: float,
     ):
         """Batch off uses the lowest activation point among turned-off stages."""
         pipeline_light._coordinator.turn_on(brightness=255)
@@ -636,7 +682,9 @@ class TestConcurrentKNXEvents:
             eid = f"light.stage{s}"
             hass.states.async_set(eid, STATE_OFF)
             pipeline_light._pending_manual_changes[eid] = {
-                "state": "off", "brightness": None, "timestamp": 0,
+                "state": "off",
+                "brightness": None,
+                "timestamp": 0,
             }
 
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -646,7 +694,9 @@ class TestConcurrentKNXEvents:
         assert abs(target_pct - expected_pct) < 2.0
 
     async def test_stage1_off_with_others_on_target_unchanged(
-        self, hass: HomeAssistant, pipeline_light: CombinedLight,
+        self,
+        hass: HomeAssistant,
+        pipeline_light: CombinedLight,
     ):
         """Stage 1 off (activation=0%) doesn't update target when others are on.
 
@@ -659,7 +709,9 @@ class TestConcurrentKNXEvents:
 
         hass.states.async_set("light.stage1", STATE_OFF)
         pipeline_light._pending_manual_changes["light.stage1"] = {
-            "state": "off", "brightness": None, "timestamp": 0,
+            "state": "off",
+            "brightness": None,
+            "timestamp": 0,
         }
 
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -673,12 +725,18 @@ class TestConcurrentKNXEvents:
     ):
         """Second change for same entity replaces first in pending dict."""
         pipeline_light._pending_manual_changes["light.stage1"] = {
-            "state": "off", "brightness": None, "timestamp": 0,
+            "state": "off",
+            "brightness": None,
+            "timestamp": 0,
         }
         pipeline_light._pending_manual_changes["light.stage1"] = {
-            "state": "on", "brightness": 128, "timestamp": 1,
+            "state": "on",
+            "brightness": 128,
+            "timestamp": 1,
         }
-        assert pipeline_light._pending_manual_changes["light.stage1"]["brightness"] == 128
+        assert (
+            pipeline_light._pending_manual_changes["light.stage1"]["brightness"] == 128
+        )
 
     async def test_debounce_task_cancellation(
         self, hass: HomeAssistant, pipeline_light: CombinedLight
@@ -695,7 +753,9 @@ class TestConcurrentKNXEvents:
         second_task = pipeline_light._debounce_task
 
         assert first_task != second_task
-        assert first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        assert (
+            first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        )
 
 
 # ===========================================================================
@@ -788,7 +848,9 @@ class TestStateTransitions:
         # Stage 3 reports on@0 (transitional)
         hass.states.async_set("light.stage3", STATE_ON, {"brightness": 0})
         pipeline_light._pending_manual_changes["light.stage3"] = {
-            "state": "on", "brightness": 0, "timestamp": 0,
+            "state": "on",
+            "brightness": 0,
+            "timestamp": 0,
         }
 
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -813,7 +875,9 @@ class TestStateTransitions:
         hass.states.async_set("light.stage1", STATE_OFF)
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage1")
 
         assert pipeline_light._coordinator.is_on is False
@@ -907,15 +971,18 @@ class TestEdgeCases:
         assert b2_at_100 == 0.0
 
     async def test_empty_stages_only_stage1(
-        self, hass: HomeAssistant,
+        self,
+        hass: HomeAssistant,
     ):
         """Only stage 1 configured — no crash, only stage 1 controlled."""
-        entry = make_entry(stages={
-            "stage_1_lights": ["light.only"],
-            "stage_2_lights": [],
-            "stage_3_lights": [],
-            "stage_4_lights": [],
-        })
+        entry = make_entry(
+            stages={
+                "stage_1_lights": ["light.only"],
+                "stage_2_lights": [],
+                "stage_3_lights": [],
+                "stage_4_lights": [],
+            }
+        )
         light = CombinedLight(hass, entry)
         light.hass = hass
         light.async_schedule_update_ha_state = MagicMock()
@@ -974,9 +1041,7 @@ class TestCurveTypes:
         for i in range(101):
             x = i / 100
             y = calc._apply_brightness_curve(x, curve)
-            assert y >= prev - 1e-10, (
-                f"[{curve}] Not monotonic at x={x}: {y} < {prev}"
-            )
+            assert y >= prev - 1e-10, f"[{curve}] Not monotonic at x={x}: {y} < {prev}"
             prev = y
 
     @pytest.mark.parametrize("curve", ["linear", "quadratic", "cubic", "sqrt", "cbrt"])
@@ -994,12 +1059,14 @@ class TestCurveTypes:
 
     def test_mixed_curves_per_stage(self):
         """Different curve per stage — roundtrip works for each."""
-        entry = make_entry(curves={
-            "stage_1_curve": "quadratic",
-            "stage_2_curve": "sqrt",
-            "stage_3_curve": "cubic",
-            "stage_4_curve": "cbrt",
-        })
+        entry = make_entry(
+            curves={
+                "stage_1_curve": "quadratic",
+                "stage_2_curve": "sqrt",
+                "stage_3_curve": "cubic",
+                "stage_4_curve": "cbrt",
+            }
+        )
         calc = BrightnessCalculator(entry)
 
         # At 95%, all stages are on
@@ -1107,7 +1174,9 @@ class TestTurnOffFilterLogic:
         hass.states.async_set("light.stage3", STATE_OFF)
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage3")
 
         # Stage 4 was off → should NOT be turned on
@@ -1129,7 +1198,9 @@ class TestTurnOffFilterLogic:
         hass.states.async_set("light.stage3", STATE_OFF)
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage3")
 
         # Stage 1 and 2 are on → should get brightness adjustments
@@ -1151,7 +1222,9 @@ class TestTurnOffFilterLogic:
         hass.states.async_set("light.stage3", STATE_ON, {"brightness": 128})
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage3")
 
         # No filter applied — other lights should get brightness adjustments
@@ -1170,7 +1243,9 @@ class TestTurnOffFilterLogic:
         hass.states.async_set("light.stage4", STATE_OFF)
         hass.states.async_set("light.stage3", STATE_OFF)
         pipeline_light._pending_manual_changes["light.stage3"] = {
-            "state": "off", "brightness": None, "timestamp": 0,
+            "state": "off",
+            "brightness": None,
+            "timestamp": 0,
         }
 
         captured = {}
@@ -1195,7 +1270,9 @@ class TestTurnOffFilterLogic:
         hass.states.async_set("light.stage2", STATE_OFF)
 
         scheduled = {}
-        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(c)
+        pipeline_light._schedule_back_propagation = lambda c, e=None: scheduled.update(
+            c
+        )
         pipeline_light._handle_manual_change("light.stage2")
 
         # Stages 3 and 4 should be told to turn off (brightness=0)
@@ -1451,6 +1528,7 @@ class TestErrorResilience:
         self, hass: HomeAssistant, pipeline_light: CombinedLight
     ):
         """Back-prop task cancelled when entity removed."""
+
         # Create a long-running back-prop task
         async def slow_backprop():
             await asyncio.sleep(100)
@@ -1545,7 +1623,9 @@ class TestFullScenarioChains:
         for eid in ("light.stage1", "light.stage2", "light.stage3", "light.stage4"):
             hass.states.async_set(eid, STATE_OFF)
             pipeline_light._pending_manual_changes[eid] = {
-                "state": "off", "brightness": None, "timestamp": 0,
+                "state": "off",
+                "brightness": None,
+                "timestamp": 0,
             }
 
         pipeline_light._schedule_back_propagation = MagicMock()
@@ -1564,7 +1644,9 @@ class TestFullScenarioChains:
         for eid in ("light.stage3", "light.stage4"):
             hass.states.async_set(eid, STATE_OFF)
             pipeline_light._pending_manual_changes[eid] = {
-                "state": "off", "brightness": None, "timestamp": 0,
+                "state": "off",
+                "brightness": None,
+                "timestamp": 0,
             }
 
         # Wait, stages 3+4 off means min activation of (60%, 90%) = 60%
@@ -1609,9 +1691,7 @@ class TestFullScenarioChains:
             pipeline_light._coordinator.turn_on(brightness=int(pct / 100 * 255))
 
         assert pipeline_light._coordinator.target_brightness == 255
-        assert all(
-            lt.is_on for lt in pipeline_light._coordinator.get_lights()
-        )
+        assert all(lt.is_on for lt in pipeline_light._coordinator.get_lights())
 
     async def test_scenario_off_on_off_on_cycle(
         self, hass: HomeAssistant, pipeline_light: CombinedLight
@@ -1620,13 +1700,16 @@ class TestFullScenarioChains:
         for _ in range(3):
             pipeline_light._coordinator.turn_on(brightness=128)
             assert pipeline_light._coordinator.is_on is True
-            assert all(lt.is_on or lt.brightness == 0
-                       for lt in pipeline_light._coordinator.get_lights())
+            assert all(
+                lt.is_on or lt.brightness == 0
+                for lt in pipeline_light._coordinator.get_lights()
+            )
 
             pipeline_light._coordinator.turn_off()
             assert pipeline_light._coordinator.is_on is False
-            assert all(lt.brightness == 0
-                       for lt in pipeline_light._coordinator.get_lights())
+            assert all(
+                lt.brightness == 0 for lt in pipeline_light._coordinator.get_lights()
+            )
 
     async def test_scenario_stage_by_stage_activation(
         self, hass: HomeAssistant, pipeline_light: CombinedLight

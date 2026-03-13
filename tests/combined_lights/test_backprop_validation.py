@@ -218,9 +218,7 @@ class TestCoordinatorStateFixed:
         coord.handle_manual_light_change("light.s2", 0)
 
         estimate = coord._estimate_overall_from_current_lights()
-        assert estimate == 0.0, (
-            f"All off → estimate should be 0, got {estimate}"
-        )
+        assert estimate == 0.0, f"All off → estimate should be 0, got {estimate}"
 
 
 # ===========================================================================
@@ -270,6 +268,7 @@ class TestBatchProcessingFixed:
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
         """Result should be the same regardless of queue insertion order."""
+
         def run_scenario(queue_order):
             hass.states.async_set("light.stage1", STATE_ON, {"brightness": 179})
             hass.states.async_set("light.stage2", STATE_OFF)
@@ -348,8 +347,10 @@ class TestTurnOffFilterFixed:
         hass.states.async_set("light.stage4", STATE_OFF)
 
         scheduled_changes = {}
+
         def capture(changes, exclude=None):
             scheduled_changes.update(changes)
+
         combined_light._schedule_back_propagation = capture
 
         # Manually turn off stage 3
@@ -357,8 +358,14 @@ class TestTurnOffFilterFixed:
         combined_light._handle_manual_change("light.stage3")
 
         # FIX: stage 1 and 2 should get brightness adjustments
-        has_stage1 = "light.stage1" in scheduled_changes and scheduled_changes["light.stage1"] > 0
-        has_stage2 = "light.stage2" in scheduled_changes and scheduled_changes["light.stage2"] > 0
+        has_stage1 = (
+            "light.stage1" in scheduled_changes
+            and scheduled_changes["light.stage1"] > 0
+        )
+        has_stage2 = (
+            "light.stage2" in scheduled_changes
+            and scheduled_changes["light.stage2"] > 0
+        )
 
         assert has_stage1, (
             f"Stage 1 should get brightness adjustment, got {scheduled_changes}"
@@ -380,8 +387,10 @@ class TestTurnOffFilterFixed:
         hass.states.async_set("light.stage4", STATE_OFF)  # already off
 
         scheduled_changes = {}
+
         def capture(changes, exclude=None):
             scheduled_changes.update(changes)
+
         combined_light._schedule_back_propagation = capture
 
         # Turn off stage 3
@@ -445,7 +454,11 @@ class TestContextBufferFixed:
         assert first_ctx.id in detector._recent_contexts
 
         event = create_state_event(
-            "light.test", "off", None, "on", 128,
+            "light.test",
+            "off",
+            None,
+            "on",
+            128,
             context_id=first_ctx.id,
         )
 
@@ -589,8 +602,10 @@ class TestEndToEndBackPropagation:
         hass.states.async_set("light.stage4", STATE_OFF)
 
         scheduled_changes = {}
+
         def capture(changes, exclude=None):
             scheduled_changes.update(changes)
+
         combined_light._schedule_back_propagation = capture
 
         new_s1 = int(30 / 100 * 255)
@@ -616,8 +631,10 @@ class TestEndToEndBackPropagation:
         hass.states.async_set("light.stage4", STATE_OFF)
 
         scheduled_changes = {}
+
         def capture(changes, exclude=None):
             scheduled_changes.update(changes)
+
         combined_light._schedule_back_propagation = capture
 
         hass.states.async_set("light.stage3", STATE_ON, {"brightness": 128})

@@ -50,9 +50,7 @@ class TestLightControllerTurnOn:
             "Service call must use blocking=True to wait for lights to respond"
         )
 
-    async def test_turn_on_batches_entities(
-        self, light_controller, mock_hass, context
-    ):
+    async def test_turn_on_batches_entities(self, light_controller, mock_hass, context):
         """Test that turn_on_lights sends all entities in a single call."""
         entities = ["light.test1", "light.test2", "light.test3"]
         brightness_pct = 50.0
@@ -69,9 +67,7 @@ class TestLightControllerTurnOn:
         service_data = call_args.args[2]  # Third positional arg is service_data
         assert service_data["entity_id"] == entities
 
-    async def test_turn_on_passes_context(
-        self, light_controller, mock_hass, context
-    ):
+    async def test_turn_on_passes_context(self, light_controller, mock_hass, context):
         """Test that turn_on_lights passes context to service call."""
         entities = ["light.test1"]
         brightness_pct = 100.0
@@ -114,7 +110,9 @@ class TestLightControllerTurnOn:
         brightness_pct = 75.0
         expected_brightness = int(75.0 / 100.0 * 255)
 
-        result = await light_controller.turn_on_lights(entities, brightness_pct, context)
+        result = await light_controller.turn_on_lights(
+            entities, brightness_pct, context
+        )
 
         assert result == {
             "light.test1": expected_brightness,
@@ -136,9 +134,7 @@ class TestLightControllerTurnOn:
         """Test that turn_on_lights handles service errors gracefully."""
         from homeassistant.exceptions import ServiceNotFound
 
-        mock_hass.services.async_call.side_effect = ServiceNotFound(
-            "light", "turn_on"
-        )
+        mock_hass.services.async_call.side_effect = ServiceNotFound("light", "turn_on")
         entities = ["light.test1"]
 
         result = await light_controller.turn_on_lights(entities, 50.0, context)
@@ -182,9 +178,7 @@ class TestLightControllerTurnOff:
         service_data = call_args.args[2]  # Third positional arg is service_data
         assert service_data["entity_id"] == entities
 
-    async def test_turn_off_passes_context(
-        self, light_controller, mock_hass, context
-    ):
+    async def test_turn_off_passes_context(self, light_controller, mock_hass, context):
         """Test that turn_off_lights passes context to service call."""
         entities = ["light.test1"]
 
@@ -221,9 +215,7 @@ class TestLightControllerTurnOff:
         """Test that turn_off_lights handles service errors gracefully."""
         from homeassistant.exceptions import ServiceNotFound
 
-        mock_hass.services.async_call.side_effect = ServiceNotFound(
-            "light", "turn_off"
-        )
+        mock_hass.services.async_call.side_effect = ServiceNotFound("light", "turn_off")
         entities = ["light.test1"]
 
         result = await light_controller.turn_off_lights(entities, context)
@@ -254,4 +246,3 @@ class TestLightControllerServiceCalls:
         call_args = mock_hass.services.async_call.call_args.args
         assert call_args[0] == "light"
         assert call_args[1] == "turn_off"
-
