@@ -150,8 +150,7 @@ class CombinedLight(LightEntity, RestoreEntity):
             self._target_brightness_initialized = True
 
         # Prepare integration context
-        integration_context = Context(id=str(uuid.uuid4()), user_id=None)
-        self._manual_detector.add_integration_context(integration_context)
+        self._create_integration_context()
 
         # Listen for state changes of controlled lights
         all_lights = list(self._coordinator._lights.keys())
@@ -190,9 +189,20 @@ class CombinedLight(LightEntity, RestoreEntity):
             EVENT_STATE_CHANGED, light_state_changed
         )
 
+    def _create_integration_context(self) -> Context:
+        """Create a new context and register it with the manual change detector."""
+        ctx = Context(id=str(uuid.uuid4()), user_id=None)
+        self._manual_detector.add_integration_context(ctx)
+        return ctx
+
     def _sync_coordinator_from_ha(self) -> None:
         """Sync coordinator state from actual HA light states."""
         self._coordinator.sync_all_lights_from_ha()
+
+        # Update is_on from actual light states
+        self._coordinator._is_on = any(
+            lt.is_on for lt in self._coordinator._lights.values()
+        )
 
         # Estimate overall brightness from current states
         if self._coordinator.is_on:
@@ -706,8 +716,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         self, changes: dict[str, int], exclude_entity_id: str | None = None
     ) -> None:
         """Apply back-propagation changes to HA lights."""
-        caller_ctx = Context(id=str(uuid.uuid4()), user_id=None)
-        self._manual_detector.add_integration_context(caller_ctx)
+        caller_ctx = self._create_integration_context()
 
         _LOGGER.info(
             "Back-propagation: applying changes %s (excluding %s)",
@@ -830,8 +839,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                 WATCHDOG_MAX_RETRIES,
             )
 
-            caller_ctx = Context(id=str(uuid.uuid4()), user_id=None)
-            self._manual_detector.add_integration_context(caller_ctx)
+            caller_ctx = self._create_integration_context()
 
             try:
                 async with self._lock:
@@ -849,13 +857,5 @@ class CombinedLight(LightEntity, RestoreEntity):
             _LOGGER.warning(
                 "Watchdog: max retries reached, re-syncing coordinator from HA"
             )
-            self._coordinator.sync_all_lights_from_ha()
-            overall_pct = self._coordinator._estimate_overall_from_current_lights()
-            if overall_pct > 0:
-                self._coordinator._target_brightness = max(
-                    1, min(255, int(overall_pct / 100 * 255))
-                )
-            self._coordinator._is_on = any(
-                lt.is_on for lt in self._coordinator._lights.values()
-            )
+            self._sync_coordinator_from_ha()
             self.async_schedule_update_ha_state()

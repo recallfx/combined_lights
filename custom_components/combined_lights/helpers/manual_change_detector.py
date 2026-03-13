@@ -61,11 +61,10 @@ class ManualChangeDetector:
             )
             del self._expected_states[eid]
 
-        # Expire pending brightness (uses time.time(), not monotonic)
-        wall_now = time.time()
+        # Expire pending brightness
         expired_pending = [
             eid for eid, ts in self._pending_brightness.items()
-            if wall_now - ts > self._pending_brightness_timeout * 2
+            if now - ts > self._pending_brightness_timeout * 2
         ]
         for eid in expired_pending:
             _LOGGER.info(
@@ -117,14 +116,14 @@ class ManualChangeDetector:
             (actual_brightness is None or actual_brightness == 0) and
             old_state and old_state.state == "off"):
             # Track this entity as pending brightness confirmation
-            self._pending_brightness[entity_id] = time.time()
+            self._pending_brightness[entity_id] = time.monotonic()
             _LOGGER.info("  -> NOT manual (transitional_on_state, waiting for brightness)")
             return False, "transitional_on_state"
 
         # Check if this is a brightness confirmation for a pending transitional state
         if entity_id in self._pending_brightness:
             pending_time = self._pending_brightness[entity_id]
-            elapsed = time.time() - pending_time
+            elapsed = time.monotonic() - pending_time
             del self._pending_brightness[entity_id]
             
             if elapsed <= self._pending_brightness_timeout:
