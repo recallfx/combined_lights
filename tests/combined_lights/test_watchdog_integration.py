@@ -15,11 +15,10 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.core import Context, Event, HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 
 from custom_components.combined_lights.const import (
     WATCHDOG_BRIGHTNESS_TOLERANCE,
-    WATCHDOG_MAX_RETRIES,
 )
 from custom_components.combined_lights.light import CombinedLight
 
@@ -523,13 +522,9 @@ class TestGatewayLatency:
         # Deliver the delayed response before watchdog fires
         faulty_controller.deliver_delayed()
 
-        # Count calls before watchdog
-        calls_before = len(faulty_controller.call_log)
-
         await asyncio.sleep(0.1)
 
         # Watchdog should see light is on and not retry
-        calls_after = len(faulty_controller.call_log)
         # No additional turn_on calls for stage1 beyond initial
         stage1_on_calls = [
             c for c in faulty_controller.call_log

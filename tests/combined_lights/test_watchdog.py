@@ -1,15 +1,13 @@
 """Tests for post-command state verification watchdog."""
 
-import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.core import Context, HomeAssistant
+from homeassistant.core import HomeAssistant
 
 from custom_components.combined_lights.const import (
-    WATCHDOG_BRIGHTNESS_TOLERANCE,
     WATCHDOG_MAX_RETRIES,
 )
 from custom_components.combined_lights.light import CombinedLight

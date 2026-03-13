@@ -316,7 +316,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                 )
                 min_overall = min(min_overall, activation)
 
-            any_on = any(l.is_on for l in self._coordinator._lights.values())
+            any_on = any(lt.is_on for lt in self._coordinator._lights.values())
             self._coordinator._is_on = any_on
 
             if any_on and min_overall > 0:
@@ -360,8 +360,8 @@ class CombinedLight(LightEntity, RestoreEntity):
 
         # Log state
         lights_state = {
-            eid.split(".")[-1]: f"{l.is_on}@{l.brightness}"
-            for eid, l in self._coordinator._lights.items()
+            eid.split(".")[-1]: f"{lt.is_on}@{lt.brightness}"
+            for eid, lt in self._coordinator._lights.items()
         }
         _LOGGER.info("  Lights state: %s", lights_state)
         _LOGGER.info(
@@ -455,8 +455,8 @@ class CombinedLight(LightEntity, RestoreEntity):
 
         # Log current state of all lights
         lights_state = {
-            eid.split(".")[-1]: f"{l.is_on}@{l.brightness}"
-            for eid, l in self._coordinator._lights.items()
+            eid.split(".")[-1]: f"{lt.is_on}@{lt.brightness}"
+            for eid, lt in self._coordinator._lights.items()
         }
         _LOGGER.info("  Lights state after sync: %s", lights_state)
 
@@ -856,6 +856,6 @@ class CombinedLight(LightEntity, RestoreEntity):
                     1, min(255, int(overall_pct / 100 * 255))
                 )
             self._coordinator._is_on = any(
-                l.is_on for l in self._coordinator._lights.values()
+                lt.is_on for lt in self._coordinator._lights.values()
             )
             self.async_schedule_update_ha_state()
