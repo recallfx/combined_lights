@@ -90,21 +90,30 @@ class TestBidirectionalSync:
         expected = int(75 / 100 * 255)  # 191
         assert combined_light._coordinator.target_brightness == expected
 
-    async def test_manual_change_skipped_when_updating(
+    async def test_manual_change_processed_even_when_updating_flag_set(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Test that manual changes are skipped while updating lights."""
-        combined_light.hass = hass
-        initial_target = combined_light._coordinator.target_brightness
+        """Test that _handle_manual_change processes changes regardless of updating flag.
 
-        # Set the updating flag
+        The updating flag is checked by ManualChangeDetector.is_manual_change()
+        at the event listener level, NOT in _handle_manual_change itself. This
+        ensures legitimate manual changes aren't dropped when the flag is stale.
+        """
+        combined_light.hass = hass
+
+        # Set the updating flag (should NOT block _handle_manual_change)
         combined_light._manual_detector.set_updating_flag(True)
 
         hass.states.async_set("light.stage1_1", STATE_ON, {"brightness": 100})
+        hass.states.async_set("light.stage1_2", STATE_OFF)
+        hass.states.async_set("light.stage2_1", STATE_OFF)
+        hass.states.async_set("light.stage3_1", STATE_OFF)
+        hass.states.async_set("light.stage4_1", STATE_OFF)
         combined_light._handle_manual_change("light.stage1_1")
 
-        # Should be unchanged
-        assert combined_light._coordinator.target_brightness == initial_target
+        # _handle_manual_change should have processed the change
+        assert combined_light._coordinator.is_on is True
+        assert combined_light._coordinator.target_brightness > 0
 
         combined_light._manual_detector.set_updating_flag(False)
 

@@ -15,7 +15,7 @@ class ManualChangeDetector:
     def __init__(self):
         """Initialize the manual change detector."""
         self._recent_contexts: list[str] = []
-        self._max_recent_contexts = 5
+        self._max_recent_contexts = 20
         self._expected_states: dict[str, int] = {}
         self._updating_lights = False
         self._brightness_tolerance = 5

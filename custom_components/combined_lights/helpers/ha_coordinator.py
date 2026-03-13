@@ -316,9 +316,14 @@ class HACombinedLightsCoordinator:
 
         if any_on:
             self._target_brightness = max(1, min(255, int(overall_pct / 100 * 255)))
-
-        # Calculate back-propagation changes (excluding the changed light)
-        back_prop_changes = self.apply_back_propagation(exclude_entity_id=entity_id)
+            # Calculate back-propagation changes (excluding the changed light)
+            back_prop_changes = self.apply_back_propagation(
+                exclude_entity_id=entity_id
+            )
+        else:
+            # All lights off — don't run back-propagation as it would
+            # re-mark internal lights as on using the stale target brightness
+            back_prop_changes = {}
 
         return overall_pct, back_prop_changes
 
@@ -362,12 +367,12 @@ class HACombinedLightsCoordinator:
         return {entity_id: brightness}, overall_pct
 
     def apply_back_propagation(
-        self, exclude_entity_id: str | None = None
+        self, exclude_entity_id: str | set[str] | None = None
     ) -> dict[str, int]:
-        """Apply back-propagation to update all lights except the excluded one.
+        """Apply back-propagation to update all lights except excluded ones.
 
         Args:
-            exclude_entity_id: Entity to exclude from updates
+            exclude_entity_id: Entity ID (str) or set of entity IDs to exclude
 
         Returns:
             Dict mapping entity_id to new brightness value
@@ -375,8 +380,16 @@ class HACombinedLightsCoordinator:
         zone_brightness = self.calculate_all_zone_brightness()
         changes: dict[str, int] = {}
 
+        # Normalize exclusion to a set
+        if isinstance(exclude_entity_id, set):
+            excluded = exclude_entity_id
+        elif exclude_entity_id:
+            excluded = {exclude_entity_id}
+        else:
+            excluded = set()
+
         for light in self._lights.values():
-            if light.entity_id == exclude_entity_id:
+            if light.entity_id in excluded:
                 continue
 
             stage_brightness_pct = zone_brightness.get(light.stage, 0)
@@ -400,13 +413,22 @@ class HACombinedLightsCoordinator:
 
     def _estimate_overall_from_current_lights(self) -> float:
         """Estimate overall brightness from current light states."""
-        zone_brightness: dict[int, float | None] = {}
+        # Collect all brightness values per stage (handles multiple lights per stage)
+        stage_values: dict[int, list[float]] = {}
 
         for light in self._lights.values():
             if light.is_on and light.brightness > 0:
-                zone_brightness[light.stage] = light.brightness_pct
+                stage_values.setdefault(light.stage, []).append(light.brightness_pct)
+
+        # Average brightness per stage
+        zone_brightness: dict[int, float | None] = {}
+        all_stages = {light.stage for light in self._lights.values()}
+        for stage in all_stages:
+            values = stage_values.get(stage)
+            if values:
+                zone_brightness[stage] = sum(values) / len(values)
             else:
-                zone_brightness[light.stage] = None
+                zone_brightness[stage] = None
 
         return self._calculator.estimate_overall_from_zones(zone_brightness)
 

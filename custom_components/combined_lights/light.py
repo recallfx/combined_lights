@@ -230,7 +230,11 @@ class CombinedLight(LightEntity, RestoreEntity):
         )
 
     async def _process_pending_manual_changes(self) -> None:
-        """Process pending manual changes after debounce delay."""
+        """Process pending manual changes after debounce delay.
+
+        Handles all pending changes as a batch so that concurrent events
+        (e.g., KNX "all off") are properly accounted for.
+        """
         try:
             await asyncio.sleep(self._debounce_delay)
         except asyncio.CancelledError:
@@ -250,49 +254,167 @@ class CombinedLight(LightEntity, RestoreEntity):
             [eid.split(".")[-1] for eid in pending.keys()],
         )
 
-        # Process the most significant change
-        # The _handle_manual_change method will filter out turn-ons if it's a turn-off
-        entity_id = self._select_representative_change(pending)
-        self._handle_manual_change(entity_id)
-
-    def _select_representative_change(
-        self, pending: dict[str, dict]
-    ) -> str:
-        """Select the most representative change to process.
-        
-        For turn-on changes, prefer higher brightness (more impactful).
-        For turn-off changes, pick any one (coordinator will sync all states anyway).
-        """
-        # Separate turn-on and turn-off changes
-        turn_ons = {
-            eid: change for eid, change in pending.items()
-            if change["state"] == "on" and change.get("brightness", 0) > 0
-        }
-
-        # If we have turn-ons, process those (they're more intentional)
-        if turn_ons:
-            # Pick the one with highest brightness
-            return max(
-                turn_ons.keys(),
-                key=lambda eid: turn_ons[eid].get("brightness", 0) or 0
-            )
-        
-        # For turn-offs, pick any one (coordinator will sync all states anyway)
-        return next(iter(pending.keys()))
-
-    def _handle_manual_change(self, entity_id: str) -> None:
-        """Handle a manual light change using the coordinator."""
         if not self.hass:
             return
 
-        # Skip if we're currently updating
-        if self._manual_detector._updating_lights:
-            _LOGGER.info("SKIP manual change for %s (updating_lights=True)", entity_id)
+        # Sync all lights from HA so coordinator knows current state
+        self._coordinator.sync_all_lights_from_ha()
+
+        # Classify changes by reading current HA state
+        turn_off_stages: list[int] = []
+        turn_on_entity: str | None = None
+        turn_on_brightness: int = 0
+        any_manual_turn_off = False
+        changed_entities: set[str] = set()
+
+        for eid in pending:
+            state = self.hass.states.get(eid)
+            if state is None or state.state in ("unavailable", "unknown"):
+                continue
+
+            light = self._coordinator.get_light(eid)
+            if not light:
+                continue
+
+            changed_entities.add(eid)
+
+            if state.state == "off":
+                turn_off_stages.append(light.stage)
+                any_manual_turn_off = True
+            elif state.state == "on":
+                raw_brightness = state.attributes.get("brightness")
+                # Skip transitional on@0 states
+                if raw_brightness is None or raw_brightness == 0:
+                    continue
+                if raw_brightness > turn_on_brightness:
+                    turn_on_entity = eid
+                    turn_on_brightness = raw_brightness
+
+        if not changed_entities:
+            return
+
+        # Calculate new overall brightness from ALL changes
+        if turn_off_stages:
+            # For turn-offs: use the LOWEST activation point among all
+            # turned-off stages. This respects the intent of concurrent turn-offs.
+            min_overall = 100.0
+            for stage in turn_off_stages:
+                activation = (
+                    self._coordinator._calculator.estimate_overall_from_single_light(
+                        stage, 0.0
+                    )
+                )
+                min_overall = min(min_overall, activation)
+
+            any_on = any(l.is_on for l in self._coordinator._lights.values())
+            self._coordinator._is_on = any_on
+
+            if any_on and min_overall > 0:
+                self._coordinator._target_brightness = max(
+                    1, min(255, int(min_overall / 100 * 255))
+                )
+
+            _LOGGER.info(
+                "  Batch turn-off: stages=%s → overall=%.1f%%",
+                turn_off_stages,
+                min_overall,
+            )
+
+        elif turn_on_entity:
+            # For turn-ons: estimate from the brightest changed light
+            light = self._coordinator.get_light(turn_on_entity)
+            if light:
+                brightness_pct = turn_on_brightness / 255.0 * 100
+                overall_pct = (
+                    self._coordinator._calculator.estimate_overall_from_single_light(
+                        light.stage, brightness_pct
+                    )
+                )
+                self._coordinator._is_on = True
+                self._coordinator._target_brightness = max(
+                    1, min(255, int(overall_pct / 100 * 255))
+                )
+                _LOGGER.info(
+                    "  Batch turn-on: %s at %.1f%% → overall=%.1f%%",
+                    turn_on_entity.split(".")[-1],
+                    brightness_pct,
+                    overall_pct,
+                )
+        else:
+            return
+
+        # Calculate back-propagation changes (excluding ALL manually changed entities)
+        back_prop_changes = self._coordinator.apply_back_propagation(
+            exclude_entity_id=changed_entities
+        )
+
+        # Log state
+        lights_state = {
+            eid.split(".")[-1]: f"{l.is_on}@{l.brightness}"
+            for eid, l in self._coordinator._lights.items()
+        }
+        _LOGGER.info("  Lights state: %s", lights_state)
+        _LOGGER.info(
+            "  Back-prop changes: %s (enabled=%s)",
+            {k.split(".")[-1]: v for k, v in back_prop_changes.items()}
+            if back_prop_changes
+            else {},
+            self._back_propagation_enabled,
+        )
+
+        # Filter back-propagation for turn-off intent
+        if any_manual_turn_off and back_prop_changes:
+            filtered = {}
+            for eid, bri in back_prop_changes.items():
+                if bri == 0:
+                    # Turn-off is always allowed
+                    filtered[eid] = bri
+                else:
+                    # Only adjust brightness of lights that are already on in HA
+                    current = self.hass.states.get(eid)
+                    if current and current.state == "on":
+                        filtered[eid] = bri
+                    # else: skip — would turn on a currently-off light
+
+            removed = len(back_prop_changes) - len(filtered)
+            if removed > 0:
+                _LOGGER.info(
+                    "  Filtered out %d turn-on changes for off lights", removed
+                )
+            back_prop_changes = filtered
+
+        # Schedule back-propagation if enabled
+        if self._back_propagation_enabled and back_prop_changes:
+            _LOGGER.info(
+                "  Scheduling back-propagation for %d lights",
+                len(back_prop_changes),
+            )
+            self._schedule_back_propagation(back_prop_changes)
+
+        self.async_schedule_update_ha_state()
+
+    def _handle_manual_change(self, entity_id: str) -> None:
+        """Handle a manual light change using the coordinator.
+
+        Note: This method is kept for backward compatibility (used by tests).
+        The main processing path is _process_pending_manual_changes which
+        handles batch changes directly.
+        """
+        if not self.hass:
             return
 
         # Get the new brightness from HA state
         state = self.hass.states.get(entity_id)
         if state is None:
+            return
+
+        # Skip unavailable/unknown states — not a real turn-off
+        if state.state in ("unavailable", "unknown"):
+            _LOGGER.info(
+                "SKIP manual change for %s: state is %s",
+                entity_id.split(".")[-1],
+                state.state,
+            )
             return
 
         manual_turn_off = False
@@ -340,17 +462,23 @@ class CombinedLight(LightEntity, RestoreEntity):
             {k.split(".")[-1]: v for k, v in back_prop_changes.items()} if back_prop_changes else {},
         )
 
-        # Filter out turn-on changes if user manually turned off a light
-        # User intent is clear: they want less light, not more
+        # Filter back-propagation for turn-off intent: don't turn on currently-off
+        # lights, but allow brightness adjustments for already-on lights
         if manual_turn_off and back_prop_changes:
-            filtered_changes = {
-                eid: bri for eid, bri in back_prop_changes.items()
-                if bri == 0  # Only keep turn-off changes
-            }
-            if len(filtered_changes) < len(back_prop_changes):
+            filtered_changes = {}
+            for eid, bri in back_prop_changes.items():
+                if bri == 0:
+                    filtered_changes[eid] = bri  # Turn-off always allowed
+                else:
+                    current = self.hass.states.get(eid)
+                    if current and current.state == "on":
+                        filtered_changes[eid] = bri  # Adjust already-on light
+                    # else: skip — would turn on a currently-off light
+            removed = len(back_prop_changes) - len(filtered_changes)
+            if removed > 0:
                 _LOGGER.info(
-                    "  Filtered out %d turn-on changes (manual turn-off detected)",
-                    len(back_prop_changes) - len(filtered_changes),
+                    "  Filtered out %d turn-on changes for off lights",
+                    removed,
                 )
             back_prop_changes = filtered_changes
 
@@ -363,6 +491,8 @@ class CombinedLight(LightEntity, RestoreEntity):
         """Entity removed from Home Assistant."""
         if self._remove_listener:
             self._remove_listener()
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
         if self._back_prop_task and not self._back_prop_task.done():
             self._back_prop_task.cancel()
         await super().async_will_remove_from_hass()
