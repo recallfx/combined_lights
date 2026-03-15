@@ -1,7 +1,7 @@
 """Test race condition handling in manual change detection."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -37,6 +37,8 @@ def combined_light(hass: HomeAssistant, mock_entry):
     """Create a CombinedLight instance."""
     light = CombinedLight(hass, mock_entry)
     light.hass = hass
+    # Stub out HA state writer — entity is not fully registered in test context
+    light.async_schedule_update_ha_state = MagicMock()
     return light
 
 
@@ -95,7 +97,9 @@ class TestTransitionalOnState:
         assert not is_manual
         assert reason == "transitional_on_state"
 
-    def test_transitional_on_state_none_brightness(self, detector: ManualChangeDetector):
+    def test_transitional_on_state_none_brightness(
+        self, detector: ManualChangeDetector
+    ):
         """Transitional state with None brightness should not be manual."""
         event = create_state_event(
             "light.test",
@@ -261,15 +265,11 @@ class TestDebounceQueueing:
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
         """New changes should cancel previous debounce task."""
-        event1 = create_state_event(
-            "light.stage1", "on", 255, "off", None
-        )
+        event1 = create_state_event("light.stage1", "on", 255, "off", None)
         combined_light._queue_manual_change("light.stage1", event1)
         first_task = combined_light._debounce_task
 
-        event2 = create_state_event(
-            "light.stage2", "on", 255, "off", None
-        )
+        event2 = create_state_event("light.stage2", "on", 255, "off", None)
         combined_light._queue_manual_change("light.stage2", event2)
         second_task = combined_light._debounce_task
 
@@ -277,52 +277,60 @@ class TestDebounceQueueing:
         assert first_task != second_task
         # First task should be in cancelling state (cancel() was called)
         # Note: cancelled() returns False until the task actually finishes
-        assert first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        assert (
+            first_task.cancelling() > 0 or first_task.cancelled() or first_task.done()
+        )
 
 
 class TestManualTurnOffFiltering:
-    """Test that manual turn-off prevents turn-on back-propagation."""
+    """Test that manual turn-off filters back-propagation correctly."""
 
-    async def test_manual_turn_off_filters_turn_on_changes(
+    async def test_manual_turn_off_does_not_turn_on_off_lights(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Manual turn-off should filter out any turn-on back-propagation."""
-        # Set up initial states - all lights on at stage 4
+        """Manual turn-off should NOT turn on lights that are currently off.
+
+        But it SHOULD allow brightness adjustments for already-on lights.
+        """
+        # Set up: stage1 and stage2 on, stage3 and stage4 off
         hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage3", STATE_ON, {"brightness": 255})
-        hass.states.async_set("light.stage4", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3", STATE_OFF)
+        hass.states.async_set("light.stage4", STATE_OFF)
         combined_light._coordinator._is_on = True
         combined_light._coordinator._target_brightness = 255
 
-        # Simulate manual turn-off of one light (KNX switch)
-        hass.states.async_set("light.stage1", STATE_OFF)
+        # Simulate manual turn-off of stage2 (KNX switch)
+        hass.states.async_set("light.stage2", STATE_OFF)
 
-        # Queue the turn-off event
-        event = create_state_event(
-            "light.stage1", "on", 255, "off", None
-        )
-        combined_light._queue_manual_change("light.stage1", event)
+        # Directly populate pending changes (avoids auto-task creation)
+        combined_light._pending_manual_changes["light.stage2"] = {
+            "state": "off",
+            "brightness": None,
+            "timestamp": 0,
+        }
 
-        # Track if back-propagation was scheduled
-        back_prop_scheduled = False
-        original_schedule = combined_light._schedule_back_propagation
+        # Capture scheduled back-propagation changes
+        scheduled_changes = {}
 
-        def mock_schedule(changes, exclude):
-            nonlocal back_prop_scheduled
-            # Should not contain any turn-on changes (brightness > 0)
-            turn_ons = {k: v for k, v in changes.items() if v > 0}
-            if turn_ons:
-                back_prop_scheduled = True
+        def mock_schedule(changes):
+            nonlocal scheduled_changes
+            scheduled_changes = dict(changes)
 
         combined_light._schedule_back_propagation = mock_schedule
 
-        # Process immediately
-        combined_light._debounce_delay = 0
         await combined_light._process_pending_manual_changes()
 
-        # Should NOT have scheduled turn-on back-propagation
-        assert not back_prop_scheduled, "Turn-on changes should be filtered out on manual turn-off"
+        # Back-prop should NOT turn on stage3 or stage4 (currently off in HA)
+        for eid in ("light.stage3", "light.stage4"):
+            if eid in scheduled_changes:
+                assert scheduled_changes[eid] == 0, (
+                    f"{eid} is off in HA, should not get brightness > 0, "
+                    f"got {scheduled_changes[eid]}"
+                )
+
+        # Back-prop MAY adjust stage1 brightness (it's already on)
+        # — this is the correct behavior: adjust on lights, don't turn on off lights
 
 
 class TestHandleManualChangeSkipsTransitional:
@@ -428,9 +436,7 @@ class TestHACoordinatorTransitionalState:
         assert light.is_on is True
         assert light.brightness == 1  # minimum, not 255
 
-    async def test_sync_actual_brightness(
-        self, hass: HomeAssistant, mock_entry
-    ):
+    async def test_sync_actual_brightness(self, hass: HomeAssistant, mock_entry):
         """Syncing actual brightness should work normally."""
         from custom_components.combined_lights.helpers import (
             BrightnessCalculator,
