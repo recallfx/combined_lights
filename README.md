@@ -160,7 +160,8 @@ You can define combined lights in YAML and include them from `configuration.yaml
 
 ```yaml
 combined_lights:
-  - name: Combined Study
+  - id: study
+    name: Combined Study
     enable_back_propagation: true
     stage_1_off_turns_off: true
     breakpoints: [30, 60, 90]
@@ -177,6 +178,10 @@ combined_lights:
     stage_4_lights:
       - light.study_ceiling
 ```
+
+`id` is optional. If present, YAML import matches existing entries by `id` first
+and by `name` second. Add it during migration while keeping the current name the
+same; after that, `name` can be changed without creating a duplicate entry.
 
 `stage_1_off_turns_off` defaults to `true` to preserve existing behavior. Set it
 to `false` when Stage 1 should act as an independent circuit and turning it off

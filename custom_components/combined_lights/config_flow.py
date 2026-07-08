@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_BREAKPOINTS,
     CONF_ENABLE_BACK_PROPAGATION,
+    CONF_ID,
     CONF_STAGE_1_CURVE,
     CONF_STAGE_1_LIGHTS,
     CONF_STAGE_1_OFF_TURNS_OFF,
@@ -242,22 +243,48 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason=errors["base"])
 
         name = config_data[CONF_NAME]
+        yaml_id = config_data.get(CONF_ID)
+        matching_entry = None
         for entry in self.hass.config_entries.async_entries(DOMAIN):
-            entry_name = entry.data.get(CONF_NAME, entry.title)
-            if entry_name == name or entry.title == name:
-                if entry.data != config_data or entry.title != name:
-                    updated = self.hass.config_entries.async_update_entry(
-                        entry,
-                        title=name,
-                        data=config_data,
+            if yaml_id and (
+                entry.data.get(CONF_ID) == yaml_id or entry.unique_id == yaml_id
+            ):
+                matching_entry = entry
+                break
+
+        if matching_entry is None:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                entry_name = entry.data.get(CONF_NAME, entry.title)
+                if entry_name == name or entry.title == name:
+                    matching_entry = entry
+                    break
+
+        if matching_entry is not None:
+            update_kwargs = {"title": name, "data": config_data}
+            if yaml_id:
+                update_kwargs["unique_id"] = yaml_id
+            if (
+                matching_entry.data != config_data
+                or matching_entry.title != name
+                or (yaml_id and matching_entry.unique_id != yaml_id)
+            ):
+                updated = self.hass.config_entries.async_update_entry(
+                    matching_entry,
+                    **update_kwargs,
+                )
+                if updated and matching_entry.state in (
+                    ConfigEntryState.LOADED,
+                    ConfigEntryState.SETUP_RETRY,
+                ):
+                    self.hass.config_entries.async_schedule_reload(
+                        matching_entry.entry_id
                     )
-                    if updated and entry.state in (
-                        ConfigEntryState.LOADED,
-                        ConfigEntryState.SETUP_RETRY,
-                    ):
-                        self.hass.config_entries.async_schedule_reload(entry.entry_id)
-                    _LOGGER.info("Updated Combined Lights entry %s from YAML", name)
-                return self.async_abort(reason="already_configured")
+                _LOGGER.info("Updated Combined Lights entry %s from YAML", name)
+            return self.async_abort(reason="already_configured")
+
+        if yaml_id:
+            await self.async_set_unique_id(yaml_id)
+            self._abort_if_unique_id_configured()
 
         return self.async_create_entry(title=name, data=config_data)
 

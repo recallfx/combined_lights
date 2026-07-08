@@ -15,6 +15,7 @@ import homeassistant.helpers.config_validation as cv
 from .const import (
     CONF_BREAKPOINTS,
     CONF_ENABLE_BACK_PROPAGATION,
+    CONF_ID,
     CONF_STAGE_1_CURVE,
     CONF_STAGE_1_LIGHTS,
     CONF_STAGE_1_OFF_TURNS_OFF,
@@ -62,6 +63,7 @@ def _breakpoints(value: Any) -> list[int]:
 
 COMBINED_LIGHT_SCHEMA = vol.Schema(
     {
+        vol.Optional(CONF_ID): cv.slug,
         vol.Required(CONF_NAME): cv.string,
         vol.Optional(CONF_STAGE_1_LIGHTS, default=[]): _light_list,
         vol.Optional(CONF_STAGE_2_LIGHTS, default=[]): _light_list,

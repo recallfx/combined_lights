@@ -29,6 +29,7 @@ from custom_components.combined_lights.const import (
     DEFAULT_STAGE_4_CURVE,
     DEFAULT_ENABLE_BACK_PROPAGATION,
     CONF_ENABLE_BACK_PROPAGATION,
+    CONF_ID,
     DOMAIN,
 )
 
@@ -419,6 +420,119 @@ class TestCombinedLightsConfigFlow:
         assert config_entry.data[CONF_STAGE_2_LIGHTS] == ["light.study_feature"]
         assert config_entry.data[CONF_STAGE_1_OFF_TURNS_OFF] is False
         assert config_entry.data[CONF_BREAKPOINTS] == DEFAULT_BREAKPOINTS
+        hass.config_entries.async_schedule_reload.assert_called_once_with(
+            config_entry.entry_id
+        )
+
+    async def test_import_matches_existing_entry_by_id_when_name_changes(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test YAML import uses id before name so display names can change."""
+        config_entry = ConfigEntry(
+            version=1,
+            minor_version=0,
+            domain=DOMAIN,
+            title="Combined Study",
+            data={
+                CONF_ID: "study",
+                CONF_NAME: "Combined Study",
+                CONF_STAGE_1_LIGHTS: ["light.old_stage1"],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+                CONF_BREAKPOINTS: DEFAULT_BREAKPOINTS,
+                CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+                CONF_STAGE_1_OFF_TURNS_OFF: DEFAULT_STAGE_1_OFF_TURNS_OFF,
+                CONF_STAGE_1_CURVE: DEFAULT_STAGE_1_CURVE,
+                CONF_STAGE_2_CURVE: DEFAULT_STAGE_2_CURVE,
+                CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
+                CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
+            },
+            options={},
+            entry_id=str(uuid4()),
+            source=config_entries.SOURCE_USER,
+            state=ConfigEntryState.LOADED,
+            unique_id="study",
+            discovery_keys=set(),
+        )
+        hass.config_entries._entries[config_entry.entry_id] = config_entry
+        hass.config_entries.async_schedule_reload = MagicMock()
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_IMPORT},
+            data={
+                CONF_ID: "study",
+                CONF_NAME: "Study Room",
+                CONF_STAGE_1_LIGHTS: ["light.study_bg"],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+            },
+        )
+
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "already_configured"
+        assert config_entry.title == "Study Room"
+        assert config_entry.unique_id == "study"
+        assert config_entry.data[CONF_ID] == "study"
+        assert config_entry.data[CONF_NAME] == "Study Room"
+        assert config_entry.data[CONF_STAGE_1_LIGHTS] == ["light.study_bg"]
+        hass.config_entries.async_schedule_reload.assert_called_once_with(
+            config_entry.entry_id
+        )
+
+    async def test_import_attaches_id_when_matching_existing_entry_by_name(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test YAML id is stored on an existing name-matched entry."""
+        config_entry = ConfigEntry(
+            version=1,
+            minor_version=0,
+            domain=DOMAIN,
+            title="Combined Study",
+            data={
+                CONF_NAME: "Combined Study",
+                CONF_STAGE_1_LIGHTS: ["light.old_stage1"],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+                CONF_BREAKPOINTS: DEFAULT_BREAKPOINTS,
+                CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+                CONF_STAGE_1_OFF_TURNS_OFF: DEFAULT_STAGE_1_OFF_TURNS_OFF,
+                CONF_STAGE_1_CURVE: DEFAULT_STAGE_1_CURVE,
+                CONF_STAGE_2_CURVE: DEFAULT_STAGE_2_CURVE,
+                CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
+                CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
+            },
+            options={},
+            entry_id=str(uuid4()),
+            source=config_entries.SOURCE_USER,
+            state=ConfigEntryState.LOADED,
+            unique_id=None,
+            discovery_keys=set(),
+        )
+        hass.config_entries._entries[config_entry.entry_id] = config_entry
+        hass.config_entries.async_schedule_reload = MagicMock()
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_IMPORT},
+            data={
+                CONF_ID: "study",
+                CONF_NAME: "Combined Study",
+                CONF_STAGE_1_LIGHTS: ["light.study_bg"],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+            },
+        )
+
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "already_configured"
+        assert config_entry.unique_id == "study"
+        assert config_entry.data[CONF_ID] == "study"
+        assert config_entry.data[CONF_STAGE_1_LIGHTS] == ["light.study_bg"]
         hass.config_entries.async_schedule_reload.assert_called_once_with(
             config_entry.entry_id
         )
