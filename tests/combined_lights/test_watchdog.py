@@ -91,16 +91,12 @@ async def test_watchdog_retries_only_mismatched_lights(
     combined_light._apply_changes_to_ha = AsyncMock(return_value=True)
     combined_light._schedule_watchdog = MagicMock()
 
-    await combined_light._watchdog_verify(
-        {"light.bulb_1": 180, "light.bulb_2": 64}
-    )
+    await combined_light._watchdog_verify({"light.bulb_1": 180, "light.bulb_2": 64})
 
     combined_light._apply_changes_to_ha.assert_awaited_once()
     retry_changes = combined_light._apply_changes_to_ha.await_args.args[0]
     assert retry_changes == {"light.bulb_1": 180}
-    combined_light._schedule_watchdog.assert_called_once_with(
-        {"light.bulb_1": 180}, 1
-    )
+    combined_light._schedule_watchdog.assert_called_once_with({"light.bulb_1": 180}, 1)
 
 
 async def test_watchdog_resyncs_after_max_retries(

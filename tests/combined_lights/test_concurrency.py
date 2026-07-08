@@ -222,9 +222,7 @@ async def test_back_propagation_concurrency(hass: HomeAssistant, mock_entry):
 
 
 @pytest.mark.asyncio
-async def test_manual_batch_processing_respects_lock(
-    hass: HomeAssistant, mock_entry
-):
+async def test_manual_batch_processing_respects_lock(hass: HomeAssistant, mock_entry):
     """Test that debounced manual processing uses the operation lock."""
     light = CombinedLight(hass, mock_entry)
     light.hass = hass
@@ -300,8 +298,7 @@ async def test_manual_event_during_processing_gets_followup_batch(
         await followup_task
 
     processed_batches = [
-        set(call.args[0])
-        for call in light._process_manual_change_batch.call_args_list
+        set(call.args[0]) for call in light._process_manual_change_batch.call_args_list
     ]
     assert {"light.bulb_1"} in processed_batches
     assert {"light.bulb_2"} in processed_batches

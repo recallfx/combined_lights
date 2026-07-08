@@ -54,9 +54,7 @@ def _light_list(value: Any) -> list[str]:
 
 def _breakpoints(value: Any) -> list[int]:
     """Validate the three progressive brightness breakpoints."""
-    points = vol.All(cv.ensure_list, [vol.Coerce(int)], vol.Length(min=3, max=3))(
-        value
-    )
+    points = vol.All(cv.ensure_list, [vol.Coerce(int)], vol.Length(min=3, max=3))(value)
     if points != sorted(points) or points[0] < 0 or points[-1] >= 100:
         raise vol.Invalid("breakpoints must be ascending values from 0 to 99")
     return points

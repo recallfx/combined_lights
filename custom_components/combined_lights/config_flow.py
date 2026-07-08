@@ -215,7 +215,9 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_import(self, import_config: dict[str, Any]) -> ConfigFlowResult:
+    async def async_step_import(
+        self, import_config: dict[str, Any]
+    ) -> ConfigFlowResult:
         """Import Combined Lights configuration from YAML."""
         config_data = dict(import_config)
         config_data.setdefault(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
