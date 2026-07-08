@@ -6,6 +6,7 @@ DOMAIN = "combined_lights"
 NUMBER_PLATFORM = "number"
 
 # Configuration keys used in the config flow.
+CONF_ID = "id"
 CONF_NAME = "name"
 
 # Configuration keys updated to use stage-based terminology
