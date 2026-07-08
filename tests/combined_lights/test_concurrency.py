@@ -10,6 +10,18 @@ from custom_components.combined_lights.light import CombinedLight
 from custom_components.combined_lights.const import CONF_ENABLE_BACK_PROPAGATION
 
 
+def make_state_event(state: str, brightness: int | None = None):
+    """Create a minimal state-change event."""
+    new_state = MagicMock()
+    new_state.state = state
+    new_state.attributes = {"brightness": brightness}
+
+    event = MagicMock()
+    event.data = {"new_state": new_state}
+    event.time_fired = None
+    return event
+
+
 @pytest.fixture
 def mock_entry():
     """Create a mock config entry."""
@@ -207,3 +219,89 @@ async def test_back_propagation_concurrency(hass: HomeAssistant, mock_entry):
 
     # Verify lock was acquired
     assert lock_acquired is True
+
+
+@pytest.mark.asyncio
+async def test_manual_batch_processing_respects_lock(
+    hass: HomeAssistant, mock_entry
+):
+    """Test that debounced manual processing uses the operation lock."""
+    light = CombinedLight(hass, mock_entry)
+    light.hass = hass
+    light.async_schedule_update_ha_state = MagicMock()
+    light._debounce_delay = 0
+    light._pending_manual_changes = {
+        "light.bulb_1": {
+            "state": "on",
+            "brightness": 128,
+            "timestamp": None,
+        }
+    }
+    hass.states.async_set("light.bulb_1", "on", {"brightness": 128})
+
+    lock_acquired = False
+    original_lock = light._lock
+
+    class TrackingLock:
+        async def __aenter__(self):
+            nonlocal lock_acquired
+            lock_acquired = True
+            await original_lock.__aenter__()
+            return self
+
+        async def __aexit__(self, *args):
+            await original_lock.__aexit__(*args)
+
+        def locked(self):
+            return original_lock.locked()
+
+    light._lock = TrackingLock()
+
+    await light._process_pending_manual_changes()
+
+    assert lock_acquired is True
+
+
+@pytest.mark.asyncio
+async def test_manual_event_during_processing_gets_followup_batch(
+    hass: HomeAssistant, mock_entry
+):
+    """Manual events queued during processing should not be dropped."""
+    mock_entry.data["stage_2_lights"] = ["light.bulb_2"]
+    light = CombinedLight(hass, mock_entry)
+    light.hass = hass
+    light._debounce_delay = 0
+    light._process_manual_change_batch = MagicMock()
+
+    await light._lock.acquire()
+    try:
+        light._queue_manual_change("light.bulb_1", make_state_event("on", 128))
+        first_task = light._debounce_task
+
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if not light._manual_change_debounce_sleeping:
+                break
+
+        assert first_task is not None
+        assert not light._manual_change_debounce_sleeping
+        assert not first_task.done()
+
+        light._queue_manual_change("light.bulb_2", make_state_event("on", 200))
+
+        assert first_task.cancelling() == 0
+        assert "light.bulb_2" in light._pending_manual_changes
+    finally:
+        light._lock.release()
+
+    await first_task
+    followup_task = light._debounce_task
+    if followup_task is not first_task:
+        await followup_task
+
+    processed_batches = [
+        set(call.args[0])
+        for call in light._process_manual_change_batch.call_args_list
+    ]
+    assert {"light.bulb_1"} in processed_batches
+    assert {"light.bulb_2"} in processed_batches

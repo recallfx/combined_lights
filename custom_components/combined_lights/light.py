@@ -111,6 +111,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         # Debounce state for collecting concurrent external changes
         self._pending_manual_changes: dict[str, dict] = {}
         self._debounce_task: asyncio.Task | None = None
+        self._manual_change_debounce_sleeping = False
         self._debounce_delay = entry.data.get(
             CONF_DEBOUNCE_DELAY, DEFAULT_DEBOUNCE_DELAY
         )
@@ -246,10 +247,15 @@ class CombinedLight(LightEntity, RestoreEntity):
             len(self._pending_manual_changes),
         )
 
-        # Cancel existing debounce task and start a new one
+        # Cancel only while the existing task is still collecting events. Once
+        # it starts processing a snapshot, let it finish and schedule a follow-up.
         if self._debounce_task and not self._debounce_task.done():
-            self._debounce_task.cancel()
+            if self._manual_change_debounce_sleeping:
+                self._debounce_task.cancel()
+            else:
+                return
 
+        self._manual_change_debounce_sleeping = True
         self._debounce_task = self.hass.async_create_task(
             self._process_pending_manual_changes()
         )
@@ -260,11 +266,15 @@ class CombinedLight(LightEntity, RestoreEntity):
         Handles all pending changes as a batch so that concurrent events
         (e.g., KNX "all off") are properly accounted for.
         """
+        current_task = asyncio.current_task()
         try:
             await asyncio.sleep(self._debounce_delay)
         except asyncio.CancelledError:
             # New changes came in, this task was replaced
             return
+        finally:
+            if self._debounce_task is current_task:
+                self._manual_change_debounce_sleeping = False
 
         if not self._pending_manual_changes:
             return
@@ -279,6 +289,25 @@ class CombinedLight(LightEntity, RestoreEntity):
             [eid.split(".")[-1] for eid in pending.keys()],
         )
 
+        if not self.hass:
+            return
+
+        try:
+            async with self._lock:
+                self._process_manual_change_batch(pending)
+        finally:
+            if self._pending_manual_changes and self.hass:
+                self._manual_change_debounce_sleeping = True
+                self._debounce_task = self.hass.async_create_task(
+                    self._process_pending_manual_changes()
+                )
+
+    def _process_manual_change_batch(self, pending: dict[str, dict]) -> None:
+        """Process a snapshot of debounced manual changes.
+
+        Caller must hold ``self._lock`` so coordinator state changes do not
+        interleave with turn_on, turn_off, watchdog retries, or back-propagation.
+        """
         if not self.hass:
             return
 
