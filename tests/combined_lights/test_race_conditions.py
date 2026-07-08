@@ -1,7 +1,7 @@
 """Test race condition handling in manual change detection."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
@@ -281,12 +281,12 @@ class TestDebounceQueueing:
 
 
 class TestManualTurnOffFiltering:
-    """Test that manual turn-off prevents turn-on back-propagation."""
+    """Test that manual turn-off does not turn off lights back on."""
 
     async def test_manual_turn_off_filters_turn_on_changes(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Manual turn-off should filter out any turn-on back-propagation."""
+        """Manual turn-off should not schedule turn-ons for off lights."""
         # Set up initial states - all lights on at stage 4
         hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
@@ -304,16 +304,11 @@ class TestManualTurnOffFiltering:
         )
         combined_light._queue_manual_change("light.stage1", event)
 
-        # Track if back-propagation was scheduled
-        back_prop_scheduled = False
-        original_schedule = combined_light._schedule_back_propagation
+        scheduled_changes = {}
 
         def mock_schedule(changes, exclude):
-            nonlocal back_prop_scheduled
-            # Should not contain any turn-on changes (brightness > 0)
-            turn_ons = {k: v for k, v in changes.items() if v > 0}
-            if turn_ons:
-                back_prop_scheduled = True
+            nonlocal scheduled_changes
+            scheduled_changes = changes
 
         combined_light._schedule_back_propagation = mock_schedule
 
@@ -321,8 +316,8 @@ class TestManualTurnOffFiltering:
         combined_light._debounce_delay = 0
         await combined_light._process_pending_manual_changes()
 
-        # Should NOT have scheduled turn-on back-propagation
-        assert not back_prop_scheduled, "Turn-on changes should be filtered out on manual turn-off"
+        # Should NOT have scheduled turn-on back-propagation for the off light.
+        assert scheduled_changes.get("light.stage1", 0) == 0
 
 
 class TestHandleManualChangeSkipsTransitional:

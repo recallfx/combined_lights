@@ -120,6 +120,22 @@ def create_curve_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
+def validate_config_data(config_data: dict[str, Any]) -> dict[str, str]:
+    """Validate combined light configuration data."""
+    errors: dict[str, str] = {}
+    all_lights = (
+        config_data.get(CONF_STAGE_1_LIGHTS, [])
+        + config_data.get(CONF_STAGE_2_LIGHTS, [])
+        + config_data.get(CONF_STAGE_3_LIGHTS, [])
+        + config_data.get(CONF_STAGE_4_LIGHTS, [])
+    )
+    if not all_lights:
+        errors["base"] = "no_lights_selected"
+    elif len(all_lights) != len(set(all_lights)):
+        errors["base"] = "duplicate_lights"
+    return errors
+
+
 class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Combined Lights."""
 
@@ -136,18 +152,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate that at least one light is configured
-            all_lights = (
-                user_input.get(CONF_STAGE_1_LIGHTS, [])
-                + user_input.get(CONF_STAGE_2_LIGHTS, [])
-                + user_input.get(CONF_STAGE_3_LIGHTS, [])
-                + user_input.get(CONF_STAGE_4_LIGHTS, [])
-            )
-            if not all_lights:
-                errors["base"] = "no_lights_selected"
-            elif len(all_lights) != len(set(all_lights)):
-                errors["base"] = "duplicate_lights"
-            else:
+            errors = validate_config_data(user_input)
+            if not errors:
                 # Store basic configuration
                 self._config_data.update(user_input)
 
@@ -198,6 +204,39 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def async_step_import(self, import_config: dict[str, Any]) -> ConfigFlowResult:
+        """Import Combined Lights configuration from YAML."""
+        config_data = dict(import_config)
+        config_data.setdefault(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
+        config_data.setdefault(CONF_STAGE_1_CURVE, DEFAULT_STAGE_1_CURVE)
+        config_data.setdefault(CONF_STAGE_2_CURVE, DEFAULT_STAGE_2_CURVE)
+        config_data.setdefault(CONF_STAGE_3_CURVE, DEFAULT_STAGE_3_CURVE)
+        config_data.setdefault(CONF_STAGE_4_CURVE, DEFAULT_STAGE_4_CURVE)
+
+        errors = validate_config_data(config_data)
+        if errors:
+            _LOGGER.error(
+                "Invalid YAML configuration for %s: %s",
+                config_data.get(CONF_NAME, "Combined Lights"),
+                errors["base"],
+            )
+            return self.async_abort(reason=errors["base"])
+
+        name = config_data[CONF_NAME]
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            entry_name = entry.data.get(CONF_NAME, entry.title)
+            if entry_name == name or entry.title == name:
+                if entry.data != config_data or entry.title != name:
+                    self.hass.config_entries.async_update_entry(
+                        entry,
+                        title=name,
+                        data=config_data,
+                    )
+                    _LOGGER.info("Updated Combined Lights entry %s from YAML", name)
+                return self.async_abort(reason="already_configured")
+
+        return self.async_create_entry(title=name, data=config_data)
+
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -212,18 +251,8 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="entry_not_found")
 
         if user_input is not None:
-            # Validate that at least one light is configured
-            all_lights = (
-                user_input.get(CONF_STAGE_1_LIGHTS, [])
-                + user_input.get(CONF_STAGE_2_LIGHTS, [])
-                + user_input.get(CONF_STAGE_3_LIGHTS, [])
-                + user_input.get(CONF_STAGE_4_LIGHTS, [])
-            )
-            if not all_lights:
-                errors["base"] = "no_lights_selected"
-            elif len(all_lights) != len(set(all_lights)):
-                errors["base"] = "duplicate_lights"
-            else:
+            errors = validate_config_data(user_input)
+            if not errors:
                 # Store basic configuration for reconfiguration
                 self._config_data = {**config_entry.data, **user_input}
 

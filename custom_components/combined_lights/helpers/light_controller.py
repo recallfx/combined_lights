@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceNotFound
 
 _LOGGER = logging.getLogger(__name__)
+
+# Timeout for blocking service calls (seconds).
+# Prevents component freeze if KNX gateway is slow/unresponsive.
+SERVICE_CALL_TIMEOUT = 10.0
 
 
 class LightController:
@@ -51,17 +56,17 @@ class LightController:
         )
 
         try:
-            # Call service with all entities at once - more efficient and atomic
-            await self._hass.services.async_call(
-                "light",
-                "turn_on",
-                {
-                    "entity_id": light_entities,
-                    "brightness": brightness_value,
-                },
-                blocking=True,
-                context=context,
-            )
+            async with asyncio.timeout(SERVICE_CALL_TIMEOUT):
+                await self._hass.services.async_call(
+                    "light",
+                    "turn_on",
+                    {
+                        "entity_id": light_entities,
+                        "brightness": brightness_value,
+                    },
+                    blocking=True,
+                    context=context,
+                )
             # Mark all entities as expected to have new brightness
             for entity_id in light_entities:
                 expected_states[entity_id] = brightness_value
@@ -69,6 +74,12 @@ class LightController:
                 "Called light.turn_on for %s with brightness %d",
                 light_entities,
                 brightness_value,
+            )
+        except TimeoutError:
+            _LOGGER.error(
+                "Timeout controlling lights %s (%.0fs)",
+                light_entities,
+                SERVICE_CALL_TIMEOUT,
             )
         except (ServiceNotFound, ValueError) as err:
             _LOGGER.error("Failed to control lights %s: %s", light_entities, err)
@@ -99,18 +110,24 @@ class LightController:
         expected_states = {}
 
         try:
-            # Call service with all entities at once - more efficient and atomic
-            await self._hass.services.async_call(
-                "light",
-                "turn_off",
-                {"entity_id": light_entities},
-                blocking=True,
-                context=context,
-            )
+            async with asyncio.timeout(SERVICE_CALL_TIMEOUT):
+                await self._hass.services.async_call(
+                    "light",
+                    "turn_off",
+                    {"entity_id": light_entities},
+                    blocking=True,
+                    context=context,
+                )
             # Mark all entities as expected to be off
             for entity_id in light_entities:
                 expected_states[entity_id] = 0
             _LOGGER.debug("Called light.turn_off for %s", light_entities)
+        except TimeoutError:
+            _LOGGER.error(
+                "Timeout turning off lights %s (%.0fs)",
+                light_entities,
+                SERVICE_CALL_TIMEOUT,
+            )
         except (ServiceNotFound, ValueError) as err:
             _LOGGER.error("Failed to turn off lights %s: %s", light_entities, err)
         except Exception as err:  # pylint: disable=broad-except

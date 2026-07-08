@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import uuid
 
 import pytest
@@ -254,4 +254,3 @@ class TestLightControllerServiceCalls:
         call_args = mock_hass.services.async_call.call_args.args
         assert call_args[0] == "light"
         assert call_args[1] == "turn_off"
-

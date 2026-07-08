@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from homeassistant.core import Context, Event
 
@@ -15,8 +16,11 @@ class ManualChangeDetector:
     def __init__(self):
         """Initialize the manual change detector."""
         self._recent_contexts: list[str] = []
-        self._max_recent_contexts = 5
-        self._expected_states: dict[str, int] = {}
+        self._max_recent_contexts = 20
+        self._expected_states: dict[
+            str, tuple[int, float]
+        ] = {}  # entity -> (brightness, timestamp)
+        self._expected_state_timeout = 10.0  # seconds before expected state expires
         self._updating_lights = False
         self._brightness_tolerance = 5
         # Track entities waiting for brightness confirmation after on@0 state
@@ -27,7 +31,11 @@ class ManualChangeDetector:
         """Add an integration context to the recent history."""
         if context.id not in self._recent_contexts:
             self._recent_contexts.append(context.id)
-            _LOGGER.debug("Added context %s (total: %d)", context.id[:8], len(self._recent_contexts))
+            _LOGGER.debug(
+                "Added context %s (total: %d)",
+                context.id[:8],
+                len(self._recent_contexts),
+            )
             # Keep only the last N contexts
             if len(self._recent_contexts) > self._max_recent_contexts:
                 self._recent_contexts.pop(0)
@@ -38,9 +46,42 @@ class ManualChangeDetector:
         _LOGGER.debug("Updating flag set to %s", updating)
 
     def track_expected_state(self, entity_id: str, expected_brightness: int) -> None:
-        """Track expected state for an entity."""
-        self._expected_states[entity_id] = expected_brightness
-        _LOGGER.debug("Tracking expected state: %s -> %d", entity_id, expected_brightness)
+        """Track expected state for an entity with timestamp for expiry."""
+        self._expected_states[entity_id] = (expected_brightness, time.monotonic())
+        _LOGGER.debug(
+            "Tracking expected state: %s -> %d", entity_id, expected_brightness
+        )
+
+    def _expire_stale_entries(self) -> None:
+        """Remove expected states and pending brightness entries that have timed out."""
+        now = time.monotonic()
+
+        # Expire expected states
+        expired = [
+            eid
+            for eid, (_, ts) in self._expected_states.items()
+            if now - ts > self._expected_state_timeout
+        ]
+        for eid in expired:
+            _LOGGER.info(
+                "Expected state expired for %s (no matching event after %.0fs)",
+                eid.split(".")[-1],
+                self._expected_state_timeout,
+            )
+            del self._expected_states[eid]
+
+        # Expire pending brightness
+        expired_pending = [
+            eid
+            for eid, ts in self._pending_brightness.items()
+            if now - ts > self._pending_brightness_timeout * 2
+        ]
+        for eid in expired_pending:
+            _LOGGER.info(
+                "Pending brightness expired for %s (no confirmation)",
+                eid.split(".")[-1],
+            )
+            del self._pending_brightness[eid]
 
     def is_manual_change(self, entity_id: str, event: Event) -> tuple[bool, str]:
         """Determine if a state change was manual intervention.
@@ -52,18 +93,28 @@ class ManualChangeDetector:
         Returns:
             Tuple of (is_manual, reason)
         """
+        # Actively expire stale entries on every check
+        self._expire_stale_entries()
+
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
         actual_brightness = (
             new_state.attributes.get("brightness") if new_state else None
         )
-        expected_brightness = self._expected_states.get(entity_id)
+        expected_entry = self._expected_states.get(entity_id)
+        expected_brightness = expected_entry[0] if expected_entry else None
         event_context_id = event.context.id if event.context else "none"
         context_is_ours = event.context and event.context.id in self._recent_contexts
-        
+
         # Log the incoming event details
-        old_state_str = f"{old_state.state}@{old_state.attributes.get('brightness')}" if old_state else "none"
-        new_state_str = f"{new_state.state}@{actual_brightness}" if new_state else "none"
+        old_state_str = (
+            f"{old_state.state}@{old_state.attributes.get('brightness')}"
+            if old_state
+            else "none"
+        )
+        new_state_str = (
+            f"{new_state.state}@{actual_brightness}" if new_state else "none"
+        )
         _LOGGER.info(
             "StateChange %s: %s -> %s | ctx=%s ours=%s | expected=%s | updating=%s",
             entity_id.split(".")[-1],
@@ -77,22 +128,26 @@ class ManualChangeDetector:
 
         # Detect transitional on@0 state (light turning on but brightness not yet reported)
         # Skip processing these - wait for actual brightness value
-        if (new_state and new_state.state == "on" and 
-            (actual_brightness is None or actual_brightness == 0) and
-            old_state and old_state.state == "off"):
+        if (
+            new_state
+            and new_state.state == "on"
+            and (actual_brightness is None or actual_brightness == 0)
+            and old_state
+            and old_state.state == "off"
+        ):
             # Track this entity as pending brightness confirmation
-            import time
-            self._pending_brightness[entity_id] = time.time()
-            _LOGGER.info("  -> NOT manual (transitional_on_state, waiting for brightness)")
+            self._pending_brightness[entity_id] = time.monotonic()
+            _LOGGER.info(
+                "  -> NOT manual (transitional_on_state, waiting for brightness)"
+            )
             return False, "transitional_on_state"
 
         # Check if this is a brightness confirmation for a pending transitional state
         if entity_id in self._pending_brightness:
-            import time
             pending_time = self._pending_brightness[entity_id]
-            elapsed = time.time() - pending_time
+            elapsed = time.monotonic() - pending_time
             del self._pending_brightness[entity_id]
-            
+
             if elapsed <= self._pending_brightness_timeout:
                 # This is the actual brightness arriving after on@0
                 # It's still a manual/external change that should be processed
@@ -132,13 +187,20 @@ class ManualChangeDetector:
                 if brightness_diff <= self._brightness_tolerance:
                     # Matches expectation
                     del self._expected_states[entity_id]
-                    _LOGGER.info("  -> NOT manual (expected_brightness_match, diff=%d)", brightness_diff)
+                    _LOGGER.info(
+                        "  -> NOT manual (expected_brightness_match, diff=%d)",
+                        brightness_diff,
+                    )
                     return False, "expected_brightness_match"
                 else:
                     # Brightness doesn't match - this is manual
                     del self._expected_states[entity_id]
-                    _LOGGER.info("  -> MANUAL (brightness_mismatch, expected=%d got=%d diff=%d)", 
-                                expected_brightness, actual_brightness, brightness_diff)
+                    _LOGGER.info(
+                        "  -> MANUAL (brightness_mismatch, expected=%d got=%d diff=%d)",
+                        expected_brightness,
+                        actual_brightness,
+                        brightness_diff,
+                    )
                     return True, "brightness_mismatch"
             else:
                 # No brightness attribute but we expected one

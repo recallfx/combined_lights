@@ -32,6 +32,12 @@ DEFAULT_ENABLE_BACK_PROPAGATION = False
 CONF_DEBOUNCE_DELAY = "debounce_delay"
 DEFAULT_DEBOUNCE_DELAY = 0.25  # 250ms - allows for slower KNX bus timing
 
+# Post-command state verification watchdog
+CONF_WATCHDOG_DELAY = "watchdog_delay"
+DEFAULT_WATCHDOG_DELAY = 2.0  # seconds to wait before verifying state
+WATCHDOG_MAX_RETRIES = 1  # retry once on mismatch, then give up and re-sync
+WATCHDOG_BRIGHTNESS_TOLERANCE = 10  # brightness units (0-255) considered "close enough"
+
 # Brightness curve types
 CURVE_LINEAR = "linear"
 CURVE_QUADRATIC = "quadratic"  # Ease-in - gentle start
