@@ -7,7 +7,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, ConfigEntryState
 from homeassistant.const import CONF_NAME
 from homeassistant.helpers import selector
 
@@ -16,6 +16,7 @@ from .const import (
     CONF_ENABLE_BACK_PROPAGATION,
     CONF_STAGE_1_CURVE,
     CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_1_OFF_TURNS_OFF,
     CONF_STAGE_2_CURVE,
     CONF_STAGE_2_LIGHTS,
     CONF_STAGE_3_CURVE,
@@ -28,7 +29,9 @@ from .const import (
     CURVE_QUADRATIC,
     CURVE_SQRT,
     DEFAULT_BREAKPOINTS,
+    DEFAULT_ENABLE_BACK_PROPAGATION,
     DEFAULT_STAGE_1_CURVE,
+    DEFAULT_STAGE_1_OFF_TURNS_OFF,
     DEFAULT_STAGE_2_CURVE,
     DEFAULT_STAGE_3_CURVE,
     DEFAULT_STAGE_4_CURVE,
@@ -88,7 +91,15 @@ def create_basic_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
             ): create_light_entity_selector(),
             vol.Optional(
                 CONF_ENABLE_BACK_PROPAGATION,
-                default=defaults.get(CONF_ENABLE_BACK_PROPAGATION, False),
+                default=defaults.get(
+                    CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_STAGE_1_OFF_TURNS_OFF,
+                default=defaults.get(
+                    CONF_STAGE_1_OFF_TURNS_OFF, DEFAULT_STAGE_1_OFF_TURNS_OFF
+                ),
             ): selector.BooleanSelector(),
         }
     )
@@ -208,7 +219,13 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
         """Import Combined Lights configuration from YAML."""
         config_data = dict(import_config)
         config_data.setdefault(CONF_BREAKPOINTS, DEFAULT_BREAKPOINTS)
+        config_data.setdefault(
+            CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
+        )
         config_data.setdefault(CONF_STAGE_1_CURVE, DEFAULT_STAGE_1_CURVE)
+        config_data.setdefault(
+            CONF_STAGE_1_OFF_TURNS_OFF, DEFAULT_STAGE_1_OFF_TURNS_OFF
+        )
         config_data.setdefault(CONF_STAGE_2_CURVE, DEFAULT_STAGE_2_CURVE)
         config_data.setdefault(CONF_STAGE_3_CURVE, DEFAULT_STAGE_3_CURVE)
         config_data.setdefault(CONF_STAGE_4_CURVE, DEFAULT_STAGE_4_CURVE)
@@ -227,11 +244,16 @@ class CombinedLightsConfigFlow(ConfigFlow, domain=DOMAIN):
             entry_name = entry.data.get(CONF_NAME, entry.title)
             if entry_name == name or entry.title == name:
                 if entry.data != config_data or entry.title != name:
-                    self.hass.config_entries.async_update_entry(
+                    updated = self.hass.config_entries.async_update_entry(
                         entry,
                         title=name,
                         data=config_data,
                     )
+                    if updated and entry.state in (
+                        ConfigEntryState.LOADED,
+                        ConfigEntryState.SETUP_RETRY,
+                    ):
+                        self.hass.config_entries.async_schedule_reload(entry.entry_id)
                     _LOGGER.info("Updated Combined Lights entry %s from YAML", name)
                 return self.async_abort(reason="already_configured")
 

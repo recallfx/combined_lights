@@ -21,12 +21,14 @@ from .const import (
     CONF_DEBOUNCE_DELAY,
     CONF_ENABLE_BACK_PROPAGATION,
     CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_1_OFF_TURNS_OFF,
     CONF_STAGE_2_LIGHTS,
     CONF_STAGE_3_LIGHTS,
     CONF_STAGE_4_LIGHTS,
     CONF_WATCHDOG_DELAY,
     DEFAULT_DEBOUNCE_DELAY,
     DEFAULT_ENABLE_BACK_PROPAGATION,
+    DEFAULT_STAGE_1_OFF_TURNS_OFF,
     DEFAULT_WATCHDOG_DELAY,
     DOMAIN,
     WATCHDOG_BRIGHTNESS_TOLERANCE,
@@ -99,6 +101,9 @@ class CombinedLight(LightEntity, RestoreEntity):
         self._target_brightness_initialized = False
         self._back_propagation_enabled = entry.data.get(
             CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
+        )
+        self._stage_1_off_turns_off = entry.data.get(
+            CONF_STAGE_1_OFF_TURNS_OFF, DEFAULT_STAGE_1_OFF_TURNS_OFF
         )
         self._back_prop_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -313,12 +318,36 @@ class CombinedLight(LightEntity, RestoreEntity):
         if not changed_entities:
             return
 
-        # Calculate new overall brightness from ALL changes
+        effective_turn_off_stages = [
+            stage
+            for stage in turn_off_stages
+            if stage != 1 or self._stage_1_off_turns_off
+        ]
+
+        # Calculate new overall brightness from ALL effective changes
         if turn_off_stages:
-            # For turn-offs: use the LOWEST activation point among all
+            if not effective_turn_off_stages:
+                self._coordinator._is_on = any(
+                    lt.is_on for lt in self._coordinator._lights.values()
+                )
+                if self._coordinator.is_on:
+                    overall_pct = (
+                        self._coordinator._estimate_overall_from_current_lights()
+                    )
+                    self._coordinator._target_brightness = max(
+                        1, min(255, int(overall_pct / 100 * 255))
+                    )
+
+                _LOGGER.info("  Batch turn-off: stage 1 ignored by configuration")
+
+                if self.entity_id:
+                    self.async_schedule_update_ha_state()
+                return
+
+            # For turn-offs: use the LOWEST activation point among all effective
             # turned-off stages. This respects the intent of concurrent turn-offs.
             min_overall = 100.0
-            for stage in turn_off_stages:
+            for stage in effective_turn_off_stages:
                 activation = (
                     self._coordinator._calculator.estimate_overall_from_single_light(
                         stage, 0.0
@@ -333,10 +362,12 @@ class CombinedLight(LightEntity, RestoreEntity):
                 self._coordinator._target_brightness = max(
                     1, min(255, int(min_overall / 100 * 255))
                 )
+            elif min_overall == 0:
+                self._coordinator._target_brightness = 0
 
             _LOGGER.info(
                 "  Batch turn-off: stages=%s -> overall=%.1f%%",
-                turn_off_stages,
+                effective_turn_off_stages,
                 min_overall,
             )
 
@@ -366,6 +397,9 @@ class CombinedLight(LightEntity, RestoreEntity):
         # Calculate back-propagation changes (excluding ALL manually changed entities)
         back_prop_changes = self._coordinator.apply_back_propagation(
             exclude_entity_id=changed_entities
+        )
+        self._coordinator._is_on = any(
+            lt.is_on for lt in self._coordinator._lights.values()
         )
 
         # Log state
@@ -492,6 +526,11 @@ class CombinedLight(LightEntity, RestoreEntity):
         # Filter back-propagation for turn-off intent: don't turn on currently-off
         # lights, but allow brightness adjustments for already-on lights
         if manual_turn_off and back_prop_changes:
+            light = self._coordinator.get_light(entity_id)
+            if light and light.stage == 1 and not self._stage_1_off_turns_off:
+                back_prop_changes = {}
+                _LOGGER.info("  Stage 1 turn-off ignored by configuration")
+
             filtered_changes = {}
             for eid, bri in back_prop_changes.items():
                 if bri == 0:

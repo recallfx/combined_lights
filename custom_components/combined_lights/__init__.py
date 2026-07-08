@@ -17,6 +17,7 @@ from .const import (
     CONF_ENABLE_BACK_PROPAGATION,
     CONF_STAGE_1_CURVE,
     CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_1_OFF_TURNS_OFF,
     CONF_STAGE_2_CURVE,
     CONF_STAGE_2_LIGHTS,
     CONF_STAGE_3_CURVE,
@@ -31,6 +32,7 @@ from .const import (
     DEFAULT_BREAKPOINTS,
     DEFAULT_ENABLE_BACK_PROPAGATION,
     DEFAULT_STAGE_1_CURVE,
+    DEFAULT_STAGE_1_OFF_TURNS_OFF,
     DEFAULT_STAGE_2_CURVE,
     DEFAULT_STAGE_3_CURVE,
     DEFAULT_STAGE_4_CURVE,
@@ -69,6 +71,9 @@ COMBINED_LIGHT_SCHEMA = vol.Schema(
         vol.Optional(CONF_STAGE_4_LIGHTS, default=[]): _light_list,
         vol.Optional(
             CONF_ENABLE_BACK_PROPAGATION, default=DEFAULT_ENABLE_BACK_PROPAGATION
+        ): cv.boolean,
+        vol.Optional(
+            CONF_STAGE_1_OFF_TURNS_OFF, default=DEFAULT_STAGE_1_OFF_TURNS_OFF
         ): cv.boolean,
         vol.Optional(CONF_BREAKPOINTS, default=DEFAULT_BREAKPOINTS): _breakpoints,
         vol.Optional(CONF_STAGE_1_CURVE, default=DEFAULT_STAGE_1_CURVE): vol.In(

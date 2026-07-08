@@ -28,6 +28,7 @@ def mock_entry():
         "breakpoints": [25, 50, 75],
         "brightness_curve": "linear",
         "enable_back_propagation": True,
+        "stage_1_off_turns_off": True,
     }
     return entry
 
@@ -286,7 +287,7 @@ class TestManualTurnOffFiltering:
     async def test_manual_turn_off_filters_turn_on_changes(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Manual turn-off should not schedule turn-ons for off lights."""
+        """Manual stage 1 turn-off should cascade off by default."""
         # Set up initial states - all lights on at stage 4
         hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
@@ -316,8 +317,34 @@ class TestManualTurnOffFiltering:
         combined_light._debounce_delay = 0
         await combined_light._process_pending_manual_changes()
 
-        # Should NOT have scheduled turn-on back-propagation for the off light.
-        assert scheduled_changes.get("light.stage1", 0) == 0
+        assert scheduled_changes
+        assert all(brightness == 0 for brightness in scheduled_changes.values())
+
+    async def test_manual_stage_1_turn_off_can_be_ignored(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual stage 1 turn-off can leave later stages unchanged."""
+        combined_light._stage_1_off_turns_off = False
+
+        hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage4", STATE_ON, {"brightness": 255})
+        combined_light._coordinator._is_on = True
+        combined_light._coordinator._target_brightness = 255
+
+        hass.states.async_set("light.stage1", STATE_OFF)
+
+        event = create_state_event("light.stage1", "on", 255, "off", None)
+        combined_light._queue_manual_change("light.stage1", event)
+
+        combined_light._schedule_back_propagation = MagicMock()
+
+        combined_light._debounce_delay = 0
+        await combined_light._process_pending_manual_changes()
+
+        combined_light._schedule_back_propagation.assert_not_called()
+        assert combined_light._coordinator.target_brightness > 0
 
 
 class TestHandleManualChangeSkipsTransitional:

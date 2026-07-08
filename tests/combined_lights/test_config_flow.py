@@ -1,9 +1,10 @@
 """Test the Combined Lights config flow."""
 
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -12,6 +13,7 @@ from custom_components.combined_lights.const import (
     CONF_BREAKPOINTS,
     CONF_STAGE_1_CURVE,
     CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_1_OFF_TURNS_OFF,
     CONF_STAGE_2_CURVE,
     CONF_STAGE_2_LIGHTS,
     CONF_STAGE_3_CURVE,
@@ -21,6 +23,7 @@ from custom_components.combined_lights.const import (
     CURVE_QUADRATIC,
     DEFAULT_BREAKPOINTS,
     DEFAULT_STAGE_1_CURVE,
+    DEFAULT_STAGE_1_OFF_TURNS_OFF,
     DEFAULT_STAGE_2_CURVE,
     DEFAULT_STAGE_3_CURVE,
     DEFAULT_STAGE_4_CURVE,
@@ -137,6 +140,7 @@ class TestCombinedLightsConfigFlow:
             CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
             CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
             CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+            CONF_STAGE_1_OFF_TURNS_OFF: DEFAULT_STAGE_1_OFF_TURNS_OFF,
         }
 
     async def test_full_flow_custom_curves_and_advanced(
@@ -195,6 +199,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
                 CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
                 CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+                CONF_STAGE_1_OFF_TURNS_OFF: DEFAULT_STAGE_1_OFF_TURNS_OFF,
             },
             options={},
             entry_id=str(uuid4()),
@@ -268,6 +273,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
                 CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
                 CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+                CONF_STAGE_1_OFF_TURNS_OFF: DEFAULT_STAGE_1_OFF_TURNS_OFF,
             },
             options={},
             entry_id=str(uuid4()),
@@ -325,6 +331,7 @@ class TestCombinedLightsConfigFlow:
                 CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
                 CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
                 CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+                CONF_STAGE_1_OFF_TURNS_OFF: DEFAULT_STAGE_1_OFF_TURNS_OFF,
             },
             options={},
             entry_id=str(uuid4()),
@@ -359,6 +366,62 @@ class TestCombinedLightsConfigFlow:
         assert result2["type"] is FlowResultType.FORM
         assert result2["step_id"] == "reconfigure"
         assert result2["errors"] == {"base": "duplicate_lights"}
+
+    async def test_import_updates_loaded_entry_and_schedules_reload(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test YAML import updates matching loaded entries and schedules reload."""
+        config_entry = ConfigEntry(
+            version=1,
+            minor_version=0,
+            domain=DOMAIN,
+            title="Combined Study",
+            data={
+                CONF_NAME: "Combined Study",
+                CONF_STAGE_1_LIGHTS: ["light.old_stage1"],
+                CONF_STAGE_2_LIGHTS: [],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+                CONF_BREAKPOINTS: DEFAULT_BREAKPOINTS,
+                CONF_ENABLE_BACK_PROPAGATION: DEFAULT_ENABLE_BACK_PROPAGATION,
+                CONF_STAGE_1_OFF_TURNS_OFF: DEFAULT_STAGE_1_OFF_TURNS_OFF,
+                CONF_STAGE_1_CURVE: DEFAULT_STAGE_1_CURVE,
+                CONF_STAGE_2_CURVE: DEFAULT_STAGE_2_CURVE,
+                CONF_STAGE_3_CURVE: DEFAULT_STAGE_3_CURVE,
+                CONF_STAGE_4_CURVE: DEFAULT_STAGE_4_CURVE,
+            },
+            options={},
+            entry_id=str(uuid4()),
+            source=config_entries.SOURCE_USER,
+            state=ConfigEntryState.LOADED,
+            unique_id=None,
+            discovery_keys=set(),
+        )
+        hass.config_entries._entries[config_entry.entry_id] = config_entry
+        hass.config_entries.async_schedule_reload = MagicMock()
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_IMPORT},
+            data={
+                CONF_NAME: "Combined Study",
+                CONF_STAGE_1_LIGHTS: ["light.study_bg"],
+                CONF_STAGE_2_LIGHTS: ["light.study_feature"],
+                CONF_STAGE_3_LIGHTS: [],
+                CONF_STAGE_4_LIGHTS: [],
+                CONF_STAGE_1_OFF_TURNS_OFF: False,
+            },
+        )
+
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "already_configured"
+        assert config_entry.data[CONF_STAGE_1_LIGHTS] == ["light.study_bg"]
+        assert config_entry.data[CONF_STAGE_2_LIGHTS] == ["light.study_feature"]
+        assert config_entry.data[CONF_STAGE_1_OFF_TURNS_OFF] is False
+        assert config_entry.data[CONF_BREAKPOINTS] == DEFAULT_BREAKPOINTS
+        hass.config_entries.async_schedule_reload.assert_called_once_with(
+            config_entry.entry_id
+        )
 
 
 class TestConfigFlowSchemas:
