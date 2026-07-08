@@ -472,7 +472,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                 "  Scheduling back-propagation for %d lights",
                 len(back_prop_changes),
             )
-            self._schedule_back_propagation(back_prop_changes, None)
+            self._schedule_back_propagation(back_prop_changes)
 
         if self.entity_id:
             self.async_schedule_update_ha_state()
@@ -484,10 +484,6 @@ class CombinedLight(LightEntity, RestoreEntity):
         The main processing path is _process_pending_manual_changes which
         handles batch changes directly.
         """
-        if self._manual_detector._updating_lights:
-            _LOGGER.info("SKIP manual change for %s (updating_lights=True)", entity_id)
-            return
-
         if not self.hass:
             return
 

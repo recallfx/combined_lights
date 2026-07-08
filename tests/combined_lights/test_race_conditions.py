@@ -305,7 +305,7 @@ class TestManualTurnOffFiltering:
 
         scheduled_changes = {}
 
-        def mock_schedule(changes, exclude):
+        def mock_schedule(changes, exclude=None):
             nonlocal scheduled_changes
             scheduled_changes = changes
 
@@ -317,6 +317,39 @@ class TestManualTurnOffFiltering:
 
         assert scheduled_changes
         assert all(brightness == 0 for brightness in scheduled_changes.values())
+
+    async def test_manual_turn_off_does_not_turn_on_off_lights(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual turn-off should not turn on lights that are currently off."""
+        hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3", STATE_OFF)
+        hass.states.async_set("light.stage4", STATE_OFF)
+        combined_light._coordinator._is_on = True
+        combined_light._coordinator._target_brightness = 255
+
+        hass.states.async_set("light.stage2", STATE_OFF)
+        combined_light._pending_manual_changes["light.stage2"] = {
+            "state": "off",
+            "brightness": None,
+            "timestamp": 0,
+        }
+
+        scheduled_changes = {}
+
+        def mock_schedule(changes, exclude=None):
+            nonlocal scheduled_changes
+            scheduled_changes = dict(changes)
+
+        combined_light._schedule_back_propagation = mock_schedule
+
+        combined_light._debounce_delay = 0
+        await combined_light._process_pending_manual_changes()
+
+        for entity_id in ("light.stage3", "light.stage4"):
+            if entity_id in scheduled_changes:
+                assert scheduled_changes[entity_id] == 0
 
     async def test_manual_stage_1_turn_off_can_be_ignored(
         self, hass: HomeAssistant, combined_light: CombinedLight
