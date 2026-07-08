@@ -21,12 +21,14 @@ from .const import (
     CONF_DEBOUNCE_DELAY,
     CONF_ENABLE_BACK_PROPAGATION,
     CONF_STAGE_1_LIGHTS,
+    CONF_STAGE_1_OFF_TURNS_OFF,
     CONF_STAGE_2_LIGHTS,
     CONF_STAGE_3_LIGHTS,
     CONF_STAGE_4_LIGHTS,
     CONF_WATCHDOG_DELAY,
     DEFAULT_DEBOUNCE_DELAY,
     DEFAULT_ENABLE_BACK_PROPAGATION,
+    DEFAULT_STAGE_1_OFF_TURNS_OFF,
     DEFAULT_WATCHDOG_DELAY,
     DOMAIN,
     WATCHDOG_BRIGHTNESS_TOLERANCE,
@@ -100,12 +102,16 @@ class CombinedLight(LightEntity, RestoreEntity):
         self._back_propagation_enabled = entry.data.get(
             CONF_ENABLE_BACK_PROPAGATION, DEFAULT_ENABLE_BACK_PROPAGATION
         )
+        self._stage_1_off_turns_off = entry.data.get(
+            CONF_STAGE_1_OFF_TURNS_OFF, DEFAULT_STAGE_1_OFF_TURNS_OFF
+        )
         self._back_prop_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
         # Debounce state for collecting concurrent external changes
         self._pending_manual_changes: dict[str, dict] = {}
         self._debounce_task: asyncio.Task | None = None
+        self._manual_change_debounce_sleeping = False
         self._debounce_delay = entry.data.get(
             CONF_DEBOUNCE_DELAY, DEFAULT_DEBOUNCE_DELAY
         )
@@ -241,10 +247,15 @@ class CombinedLight(LightEntity, RestoreEntity):
             len(self._pending_manual_changes),
         )
 
-        # Cancel existing debounce task and start a new one
+        # Cancel only while the existing task is still collecting events. Once
+        # it starts processing a snapshot, let it finish and schedule a follow-up.
         if self._debounce_task and not self._debounce_task.done():
-            self._debounce_task.cancel()
+            if self._manual_change_debounce_sleeping:
+                self._debounce_task.cancel()
+            else:
+                return
 
+        self._manual_change_debounce_sleeping = True
         self._debounce_task = self.hass.async_create_task(
             self._process_pending_manual_changes()
         )
@@ -255,11 +266,15 @@ class CombinedLight(LightEntity, RestoreEntity):
         Handles all pending changes as a batch so that concurrent events
         (e.g., KNX "all off") are properly accounted for.
         """
+        current_task = asyncio.current_task()
         try:
             await asyncio.sleep(self._debounce_delay)
         except asyncio.CancelledError:
             # New changes came in, this task was replaced
             return
+        finally:
+            if self._debounce_task is current_task:
+                self._manual_change_debounce_sleeping = False
 
         if not self._pending_manual_changes:
             return
@@ -274,6 +289,25 @@ class CombinedLight(LightEntity, RestoreEntity):
             [eid.split(".")[-1] for eid in pending.keys()],
         )
 
+        if not self.hass:
+            return
+
+        try:
+            async with self._lock:
+                self._process_manual_change_batch(pending)
+        finally:
+            if self._pending_manual_changes and self.hass:
+                self._manual_change_debounce_sleeping = True
+                self._debounce_task = self.hass.async_create_task(
+                    self._process_pending_manual_changes()
+                )
+
+    def _process_manual_change_batch(self, pending: dict[str, dict]) -> None:
+        """Process a snapshot of debounced manual changes.
+
+        Caller must hold ``self._lock`` so coordinator state changes do not
+        interleave with turn_on, turn_off, watchdog retries, or back-propagation.
+        """
         if not self.hass:
             return
 
@@ -313,12 +347,36 @@ class CombinedLight(LightEntity, RestoreEntity):
         if not changed_entities:
             return
 
-        # Calculate new overall brightness from ALL changes
+        effective_turn_off_stages = [
+            stage
+            for stage in turn_off_stages
+            if stage != 1 or self._stage_1_off_turns_off
+        ]
+
+        # Calculate new overall brightness from ALL effective changes
         if turn_off_stages:
-            # For turn-offs: use the LOWEST activation point among all
+            if not effective_turn_off_stages:
+                self._coordinator._is_on = any(
+                    lt.is_on for lt in self._coordinator._lights.values()
+                )
+                if self._coordinator.is_on:
+                    overall_pct = (
+                        self._coordinator._estimate_overall_from_current_lights()
+                    )
+                    self._coordinator._target_brightness = max(
+                        1, min(255, int(overall_pct / 100 * 255))
+                    )
+
+                _LOGGER.info("  Batch turn-off: stage 1 ignored by configuration")
+
+                if self.entity_id:
+                    self.async_schedule_update_ha_state()
+                return
+
+            # For turn-offs: use the LOWEST activation point among all effective
             # turned-off stages. This respects the intent of concurrent turn-offs.
             min_overall = 100.0
-            for stage in turn_off_stages:
+            for stage in effective_turn_off_stages:
                 activation = (
                     self._coordinator._calculator.estimate_overall_from_single_light(
                         stage, 0.0
@@ -333,10 +391,12 @@ class CombinedLight(LightEntity, RestoreEntity):
                 self._coordinator._target_brightness = max(
                     1, min(255, int(min_overall / 100 * 255))
                 )
+            elif min_overall == 0:
+                self._coordinator._target_brightness = 0
 
             _LOGGER.info(
-                "  Batch turn-off: stages=%s → overall=%.1f%%",
-                turn_off_stages,
+                "  Batch turn-off: stages=%s -> overall=%.1f%%",
+                effective_turn_off_stages,
                 min_overall,
             )
 
@@ -355,7 +415,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                     1, min(255, int(overall_pct / 100 * 255))
                 )
                 _LOGGER.info(
-                    "  Batch turn-on: %s at %.1f%% → overall=%.1f%%",
+                    "  Batch turn-on: %s at %.1f%% -> overall=%.1f%%",
                     turn_on_entity.split(".")[-1],
                     brightness_pct,
                     overall_pct,
@@ -366,6 +426,9 @@ class CombinedLight(LightEntity, RestoreEntity):
         # Calculate back-propagation changes (excluding ALL manually changed entities)
         back_prop_changes = self._coordinator.apply_back_propagation(
             exclude_entity_id=changed_entities
+        )
+        self._coordinator._is_on = any(
+            lt.is_on for lt in self._coordinator._lights.values()
         )
 
         # Log state
@@ -394,7 +457,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                     current = self.hass.states.get(eid)
                     if current and current.state == "on":
                         filtered[eid] = bri
-                    # else: skip — would turn on a currently-off light
+                    # else: skip - would turn on a currently-off light
 
             removed = len(back_prop_changes) - len(filtered)
             if removed > 0:
@@ -411,7 +474,8 @@ class CombinedLight(LightEntity, RestoreEntity):
             )
             self._schedule_back_propagation(back_prop_changes)
 
-        self.async_schedule_update_ha_state()
+        if self.entity_id:
+            self.async_schedule_update_ha_state()
 
     def _handle_manual_change(self, entity_id: str) -> None:
         """Handle a manual light change using the coordinator.
@@ -428,7 +492,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         if state is None:
             return
 
-        # Skip unavailable/unknown states — not a real turn-off
+        # Skip unavailable/unknown states - not a real turn-off
         if state.state in ("unavailable", "unknown"):
             _LOGGER.info(
                 "SKIP manual change for %s: state is %s",
@@ -487,6 +551,11 @@ class CombinedLight(LightEntity, RestoreEntity):
         # Filter back-propagation for turn-off intent: don't turn on currently-off
         # lights, but allow brightness adjustments for already-on lights
         if manual_turn_off and back_prop_changes:
+            light = self._coordinator.get_light(entity_id)
+            if light and light.stage == 1 and not self._stage_1_off_turns_off:
+                back_prop_changes = {}
+                _LOGGER.info("  Stage 1 turn-off ignored by configuration")
+
             filtered_changes = {}
             for eid, bri in back_prop_changes.items():
                 if bri == 0:
@@ -495,7 +564,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                     current = self.hass.states.get(eid)
                     if current and current.state == "on":
                         filtered_changes[eid] = bri  # Adjust already-on light
-                    # else: skip — would turn on a currently-off light
+                    # else: skip - would turn on a currently-off light
             removed = len(back_prop_changes) - len(filtered_changes)
             if removed > 0:
                 _LOGGER.info(
@@ -588,7 +657,7 @@ class CombinedLight(LightEntity, RestoreEntity):
                 self._attr_is_on = False
 
             # Schedule watchdog to verify lights reached expected state
-            # Always schedule, even on failure — KNX may have partially delivered
+            # Always schedule, even on failure - KNX may have partially delivered
             self._schedule_watchdog(changes)
 
             # Log zone brightnesses
@@ -748,7 +817,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         except Exception:
             _LOGGER.exception("Failed to apply back-propagation")
 
-    # ── Post-command state verification watchdog ──────────────────────
+    # Post-command state verification watchdog
 
     def _schedule_watchdog(
         self, expected_states: dict[str, int], retry_count: int = 0
@@ -762,7 +831,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         if not self.hass:
             return
 
-        # Cancel any existing watchdog — only the latest command matters
+        # Cancel any existing watchdog - only the latest command matters
         if self._watchdog_task and not self._watchdog_task.done():
             self._watchdog_task.cancel()
 
@@ -776,8 +845,8 @@ class CombinedLight(LightEntity, RestoreEntity):
         """Verify lights reached expected state after a delay.
 
         If mismatches are found:
-          - retry_count < MAX_RETRIES → retry the failed commands
-          - retry_count >= MAX_RETRIES → re-sync coordinator from HA (accept reality)
+          - retry_count < MAX_RETRIES -> retry the failed commands
+          - retry_count >= MAX_RETRIES -> re-sync coordinator from HA (accept reality)
         """
         try:
             await asyncio.sleep(self._watchdog_delay)
@@ -792,7 +861,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         for entity_id, expected_brightness in expected_states.items():
             state = self.hass.states.get(entity_id)
             if state is None or state.state in ("unavailable", "unknown"):
-                # Can't verify — skip
+                # Can't verify - skip
                 continue
 
             actual_on = state.state == "on"
@@ -863,7 +932,7 @@ class CombinedLight(LightEntity, RestoreEntity):
             # Schedule another verification after the retry
             self._schedule_watchdog(retry_changes, retry_count + 1)
         else:
-            # Max retries reached — accept reality and re-sync
+            # Max retries reached - accept reality and re-sync
             _LOGGER.warning(
                 "Watchdog: max retries reached, re-syncing coordinator from HA"
             )

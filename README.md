@@ -154,6 +154,34 @@ Without bidirectional sync, this automation would need to monitor multiple indiv
 
 ## Usage Examples
 
+### YAML Configuration
+
+You can define combined lights in YAML and include them from `configuration.yaml`:
+
+```yaml
+combined_lights:
+  - name: Combined Study
+    enable_back_propagation: true
+    stage_1_off_turns_off: true
+    breakpoints: [30, 60, 90]
+    stage_1_curve: linear
+    stage_1_lights:
+      - light.study_bg
+    stage_2_curve: linear
+    stage_2_lights:
+      - light.study_feature
+    stage_3_curve: linear
+    stage_3_lights:
+      - light.study_desk
+    stage_4_curve: quadratic
+    stage_4_lights:
+      - light.study_ceiling
+```
+
+`stage_1_off_turns_off` defaults to `true` to preserve existing behavior. Set it
+to `false` when Stage 1 should act as an independent circuit and turning it off
+should not turn off later stages.
+
 ### Progressive Home Lighting
 
 ```yaml

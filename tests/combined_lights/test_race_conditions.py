@@ -28,6 +28,7 @@ def mock_entry():
         "breakpoints": [25, 50, 75],
         "brightness_curve": "linear",
         "enable_back_propagation": True,
+        "stage_1_off_turns_off": True,
     }
     return entry
 
@@ -37,8 +38,6 @@ def combined_light(hass: HomeAssistant, mock_entry):
     """Create a CombinedLight instance."""
     light = CombinedLight(hass, mock_entry)
     light.hass = hass
-    # Stub out HA state writer — entity is not fully registered in test context
-    light.async_schedule_update_ha_state = MagicMock()
     return light
 
 
@@ -283,16 +282,46 @@ class TestDebounceQueueing:
 
 
 class TestManualTurnOffFiltering:
-    """Test that manual turn-off filters back-propagation correctly."""
+    """Test that manual turn-off does not turn off lights back on."""
+
+    async def test_manual_turn_off_filters_turn_on_changes(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual stage 1 turn-off should cascade off by default."""
+        # Set up initial states - all lights on at stage 4
+        hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage4", STATE_ON, {"brightness": 255})
+        combined_light._coordinator._is_on = True
+        combined_light._coordinator._target_brightness = 255
+
+        # Simulate manual turn-off of one light (KNX switch)
+        hass.states.async_set("light.stage1", STATE_OFF)
+
+        # Queue the turn-off event
+        event = create_state_event("light.stage1", "on", 255, "off", None)
+        combined_light._queue_manual_change("light.stage1", event)
+
+        scheduled_changes = {}
+
+        def mock_schedule(changes, exclude=None):
+            nonlocal scheduled_changes
+            scheduled_changes = changes
+
+        combined_light._schedule_back_propagation = mock_schedule
+
+        # Process immediately
+        combined_light._debounce_delay = 0
+        await combined_light._process_pending_manual_changes()
+
+        assert scheduled_changes
+        assert all(brightness == 0 for brightness in scheduled_changes.values())
 
     async def test_manual_turn_off_does_not_turn_on_off_lights(
         self, hass: HomeAssistant, combined_light: CombinedLight
     ):
-        """Manual turn-off should NOT turn on lights that are currently off.
-
-        But it SHOULD allow brightness adjustments for already-on lights.
-        """
-        # Set up: stage1 and stage2 on, stage3 and stage4 off
+        """Manual turn-off should not turn on lights that are currently off."""
         hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
         hass.states.async_set("light.stage3", STATE_OFF)
@@ -300,37 +329,53 @@ class TestManualTurnOffFiltering:
         combined_light._coordinator._is_on = True
         combined_light._coordinator._target_brightness = 255
 
-        # Simulate manual turn-off of stage2 (KNX switch)
         hass.states.async_set("light.stage2", STATE_OFF)
-
-        # Directly populate pending changes (avoids auto-task creation)
         combined_light._pending_manual_changes["light.stage2"] = {
             "state": "off",
             "brightness": None,
             "timestamp": 0,
         }
 
-        # Capture scheduled back-propagation changes
         scheduled_changes = {}
 
-        def mock_schedule(changes):
+        def mock_schedule(changes, exclude=None):
             nonlocal scheduled_changes
             scheduled_changes = dict(changes)
 
         combined_light._schedule_back_propagation = mock_schedule
 
+        combined_light._debounce_delay = 0
         await combined_light._process_pending_manual_changes()
 
-        # Back-prop should NOT turn on stage3 or stage4 (currently off in HA)
-        for eid in ("light.stage3", "light.stage4"):
-            if eid in scheduled_changes:
-                assert scheduled_changes[eid] == 0, (
-                    f"{eid} is off in HA, should not get brightness > 0, "
-                    f"got {scheduled_changes[eid]}"
-                )
+        for entity_id in ("light.stage3", "light.stage4"):
+            if entity_id in scheduled_changes:
+                assert scheduled_changes[entity_id] == 0
 
-        # Back-prop MAY adjust stage1 brightness (it's already on)
-        # — this is the correct behavior: adjust on lights, don't turn on off lights
+    async def test_manual_stage_1_turn_off_can_be_ignored(
+        self, hass: HomeAssistant, combined_light: CombinedLight
+    ):
+        """Manual stage 1 turn-off can leave later stages unchanged."""
+        combined_light._stage_1_off_turns_off = False
+
+        hass.states.async_set("light.stage1", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage2", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage3", STATE_ON, {"brightness": 255})
+        hass.states.async_set("light.stage4", STATE_ON, {"brightness": 255})
+        combined_light._coordinator._is_on = True
+        combined_light._coordinator._target_brightness = 255
+
+        hass.states.async_set("light.stage1", STATE_OFF)
+
+        event = create_state_event("light.stage1", "on", 255, "off", None)
+        combined_light._queue_manual_change("light.stage1", event)
+
+        combined_light._schedule_back_propagation = MagicMock()
+
+        combined_light._debounce_delay = 0
+        await combined_light._process_pending_manual_changes()
+
+        combined_light._schedule_back_propagation.assert_not_called()
+        assert combined_light._coordinator.target_brightness > 0
 
 
 class TestHandleManualChangeSkipsTransitional:

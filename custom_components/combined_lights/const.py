@@ -26,6 +26,8 @@ CONF_BREAKPOINTS = "breakpoints"  # [30, 60, 90] - slider positions where zones 
 # Optional behavior switches
 CONF_ENABLE_BACK_PROPAGATION = "enable_back_propagation"
 DEFAULT_ENABLE_BACK_PROPAGATION = False
+CONF_STAGE_1_OFF_TURNS_OFF = "stage_1_off_turns_off"
+DEFAULT_STAGE_1_OFF_TURNS_OFF = True
 
 # Debounce delay for external state changes (in seconds)
 # Allows concurrent KNX/bus events to be collected before processing

@@ -693,16 +693,12 @@ class TestConcurrentKNXEvents:
         target_pct = pipeline_light._coordinator.target_brightness / 255 * 100
         assert abs(target_pct - expected_pct) < 2.0
 
-    async def test_stage1_off_with_others_on_target_unchanged(
+    async def test_stage1_off_cascades_by_default(
         self,
         hass: HomeAssistant,
         pipeline_light: CombinedLight,
     ):
-        """Stage 1 off (activation=0%) doesn't update target when others are on.
-
-        Stage 1 is always active at any overall > 0%. Turning it off is an
-        override that the filter logic handles, not a brightness recalculation.
-        """
+        """Stage 1 off keeps the existing public behavior and turns the room off."""
         pipeline_light._coordinator.turn_on(brightness=255)
         for lt in pipeline_light._coordinator.get_lights():
             hass.states.async_set(lt.entity_id, "on", {"brightness": lt.brightness})
@@ -717,8 +713,8 @@ class TestConcurrentKNXEvents:
         pipeline_light._schedule_back_propagation = MagicMock()
         await pipeline_light._process_pending_manual_changes()
 
-        # Target stays at 255 since activation point is 0% and min_overall > 0 check fails
-        assert pipeline_light._coordinator.target_brightness == 255
+        assert pipeline_light._coordinator.target_brightness == 0
+        pipeline_light._schedule_back_propagation.assert_called_once()
 
     async def test_debounce_replaces_same_entity(
         self, hass: HomeAssistant, pipeline_light: CombinedLight
