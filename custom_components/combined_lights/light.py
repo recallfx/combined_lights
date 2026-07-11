@@ -121,6 +121,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         self._watchdog_delay = entry.data.get(
             CONF_WATCHDOG_DELAY, DEFAULT_WATCHDOG_DELAY
         )
+        self._manual_change_generation = 0
 
     def _register_lights_with_coordinator(self, entry: ConfigEntry) -> None:
         """Register all configured lights with the coordinator."""
@@ -177,6 +178,12 @@ class CombinedLight(LightEntity, RestoreEntity):
                     entity_id,
                     reason,
                 )
+                self._manual_change_generation += 1
+                if self._watchdog_task and not self._watchdog_task.done():
+                    self._watchdog_task.cancel()
+                if self._back_prop_task and not self._back_prop_task.done():
+                    self._back_prop_task.cancel()
+                self.async_set_context(event.context)
                 # Fire custom event for external change
                 self.hass.bus.async_fire(
                     "combined_light.external_change",
@@ -623,10 +630,15 @@ class CombinedLight(LightEntity, RestoreEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the combined light."""
+        command_generation = self._manual_change_generation
         if self._lock.locked():
             _LOGGER.debug("Waiting for lock in async_turn_on")
 
         async with self._lock:
+            if command_generation != self._manual_change_generation:
+                _LOGGER.debug("Turn-on superseded by a newer manual change")
+                return
+
             brightness = kwargs.get(ATTR_BRIGHTNESS)
 
             # Use coordinator to calculate changes - same logic as simulation
@@ -649,6 +661,8 @@ class CombinedLight(LightEntity, RestoreEntity):
 
             # Apply changes to actual HA lights
             any_success = await self._apply_changes_to_ha(changes, caller_ctx)
+            if command_generation != self._manual_change_generation:
+                return
 
             if not any_success:
                 _LOGGER.warning(
@@ -658,7 +672,7 @@ class CombinedLight(LightEntity, RestoreEntity):
 
             # Schedule watchdog to verify lights reached expected state
             # Always schedule, even on failure - KNX may have partially delivered
-            self._schedule_watchdog(changes)
+            self._schedule_watchdog(changes, generation=command_generation)
 
             # Log zone brightnesses
             zone_brightness = self._coordinator.get_zone_brightness_for_ha()
@@ -671,10 +685,15 @@ class CombinedLight(LightEntity, RestoreEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the combined light."""
+        command_generation = self._manual_change_generation
         if self._lock.locked():
             _LOGGER.debug("Waiting for lock in async_turn_off")
 
         async with self._lock:
+            if command_generation != self._manual_change_generation:
+                _LOGGER.debug("Turn-off superseded by a newer manual change")
+                return
+
             # Use coordinator to calculate changes - same logic as simulation
             changes = self._coordinator.turn_off()
 
@@ -688,9 +707,11 @@ class CombinedLight(LightEntity, RestoreEntity):
 
             # Apply changes to actual HA lights
             await self._apply_changes_to_ha(changes, caller_ctx)
+            if command_generation != self._manual_change_generation:
+                return
 
             # Schedule watchdog to verify lights turned off
-            self._schedule_watchdog(changes)
+            self._schedule_watchdog(changes, generation=command_generation)
 
             _LOGGER.info("Combined light turned off")
             self.async_write_ha_state()
@@ -787,14 +808,23 @@ class CombinedLight(LightEntity, RestoreEntity):
         if self._back_prop_task and not self._back_prop_task.done():
             self._back_prop_task.cancel()
 
+        generation = self._manual_change_generation
         self._back_prop_task = self.hass.async_create_task(
-            self._async_apply_back_propagation(changes, exclude_entity_id)
+            self._async_apply_back_propagation(changes, exclude_entity_id, generation)
         )
 
     async def _async_apply_back_propagation(
-        self, changes: dict[str, int], exclude_entity_id: str | None = None
+        self,
+        changes: dict[str, int],
+        exclude_entity_id: str | None = None,
+        generation: int | None = None,
     ) -> None:
         """Apply back-propagation changes to HA lights."""
+        if generation is None:
+            generation = self._manual_change_generation
+        if generation != self._manual_change_generation:
+            return
+
         caller_ctx = self._create_integration_context()
 
         _LOGGER.info(
@@ -808,10 +838,12 @@ class CombinedLight(LightEntity, RestoreEntity):
                 _LOGGER.debug("Waiting for lock in back-propagation")
 
             async with self._lock:
+                if generation != self._manual_change_generation:
+                    return
                 await self._apply_changes_to_ha(changes, caller_ctx)
 
             # Verify back-propagation results too
-            self._schedule_watchdog(changes)
+            self._schedule_watchdog(changes, generation=generation)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -820,7 +852,10 @@ class CombinedLight(LightEntity, RestoreEntity):
     # Post-command state verification watchdog
 
     def _schedule_watchdog(
-        self, expected_states: dict[str, int], retry_count: int = 0
+        self,
+        expected_states: dict[str, int],
+        retry_count: int = 0,
+        generation: int | None = None,
     ) -> None:
         """Schedule a delayed check to verify lights reached expected state.
 
@@ -831,16 +866,25 @@ class CombinedLight(LightEntity, RestoreEntity):
         if not self.hass:
             return
 
+        if generation is None:
+            generation = self._manual_change_generation
+        if generation != self._manual_change_generation:
+            _LOGGER.debug("Skipping watchdog invalidated by manual change")
+            return
+
         # Cancel any existing watchdog - only the latest command matters
         if self._watchdog_task and not self._watchdog_task.done():
             self._watchdog_task.cancel()
 
         self._watchdog_task = self.hass.async_create_task(
-            self._watchdog_verify(expected_states, retry_count)
+            self._watchdog_verify(expected_states, retry_count, generation)
         )
 
     async def _watchdog_verify(
-        self, expected_states: dict[str, int], retry_count: int = 0
+        self,
+        expected_states: dict[str, int],
+        retry_count: int = 0,
+        generation: int | None = None,
     ) -> None:
         """Verify lights reached expected state after a delay.
 
@@ -854,6 +898,10 @@ class CombinedLight(LightEntity, RestoreEntity):
             return
 
         if not self.hass:
+            return
+        if generation is None:
+            generation = self._manual_change_generation
+        if generation != self._manual_change_generation:
             return
 
         mismatches: dict[str, dict] = {}
@@ -921,6 +969,9 @@ class CombinedLight(LightEntity, RestoreEntity):
             caller_ctx = self._create_integration_context()
 
             try:
+                await asyncio.sleep(0)
+                if generation != self._manual_change_generation:
+                    return
                 async with self._lock:
                     await self._apply_changes_to_ha(retry_changes, caller_ctx)
             except asyncio.CancelledError:
@@ -930,7 +981,11 @@ class CombinedLight(LightEntity, RestoreEntity):
                 return
 
             # Schedule another verification after the retry
-            self._schedule_watchdog(retry_changes, retry_count + 1)
+            self._schedule_watchdog(
+                retry_changes,
+                retry_count + 1,
+                generation,
+            )
         else:
             # Max retries reached - accept reality and re-sync
             _LOGGER.warning(

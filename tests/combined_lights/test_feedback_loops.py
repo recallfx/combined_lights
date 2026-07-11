@@ -1,14 +1,17 @@
 """Test feedback loops and potential interference in Combined Lights."""
 
-from unittest.mock import patch
+import asyncio
+
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.const import (
+    EVENT_STATE_CHANGED,
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 
 from custom_components.combined_lights.const import CONF_ENABLE_BACK_PROPAGATION
 
@@ -21,6 +24,171 @@ def mock_light_entities(hass):
     hass.states.async_set("light.stage_1_1", STATE_OFF)
     hass.states.async_set("light.stage_2_1", STATE_OFF)
     return ["light.stage_1_1", "light.stage_2_1"]
+
+
+async def _setup_combined_light(hass: HomeAssistant, *, watchdog_delay: float = 5.0):
+    """Set up a real combined entity for event/context regression tests."""
+    config_entry = MockConfigEntry(
+        domain="combined_lights",
+        data={
+            "name": "Combined Test",
+            "stage_1_lights": ["light.stage_1_1"],
+            "stage_2_lights": ["light.stage_2_1"],
+            CONF_ENABLE_BACK_PROPAGATION: False,
+            "debounce_delay": 0.0,
+            "watchdog_delay": watchdog_delay,
+        },
+    )
+    config_entry.add_to_hass(hass)
+
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    component = hass.data.get("entity_components", {}).get("light")
+    assert component is not None
+    combined_light = component.get_entity("light.combined_test_combined_test")
+    assert combined_light is not None
+    return config_entry, combined_light
+
+
+async def test_manual_member_change_cancels_pending_watchdog(
+    hass: HomeAssistant, mock_light_entities
+):
+    """A wall-switch OFF must invalidate an older turn-on watchdog."""
+    hass.states.async_set("light.stage_1_1", STATE_ON, {ATTR_BRIGHTNESS: 128})
+    config_entry, combined_light = await _setup_combined_light(
+        hass, watchdog_delay=0.05
+    )
+
+    try:
+        combined_light._apply_changes_to_ha = AsyncMock(return_value=True)
+        combined_light._schedule_watchdog({"light.stage_1_1": 128})
+
+        manual_context = Context(id="wall-switch-off")
+        hass.states.async_set("light.stage_1_1", STATE_OFF, context=manual_context)
+        await asyncio.sleep(0.1)
+
+        combined_light._apply_changes_to_ha.assert_not_awaited()
+    finally:
+        await hass.config_entries.async_unload(config_entry.entry_id)
+
+
+async def test_manual_change_before_watchdog_creation_invalidates_command(
+    hass: HomeAssistant, mock_light_entities
+):
+    """A wall change during command delivery must prevent a stale watchdog."""
+    hass.states.async_set("light.stage_1_1", STATE_ON, {ATTR_BRIGHTNESS: 10})
+    config_entry, combined_light = await _setup_combined_light(
+        hass, watchdog_delay=0.01
+    )
+    apply_started = asyncio.Event()
+    release_apply = asyncio.Event()
+
+    async def blocked_apply(changes, context):
+        assert changes
+        apply_started.set()
+        await release_apply.wait()
+        return True
+
+    combined_light._apply_changes_to_ha = AsyncMock(side_effect=blocked_apply)
+
+    try:
+        command = asyncio.create_task(combined_light.async_turn_on(brightness=200))
+        await apply_started.wait()
+
+        hass.states.async_set(
+            "light.stage_1_1",
+            STATE_OFF,
+            context=Context(id="wall-switch-during-command"),
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        release_apply.set()
+        await command
+        await asyncio.sleep(0.05)
+
+        assert combined_light._apply_changes_to_ha.await_count == 1
+    finally:
+        release_apply.set()
+        await hass.config_entries.async_unload(config_entry.entry_id)
+
+
+async def test_manual_member_context_is_propagated_to_combined_entity(
+    hass: HomeAssistant, mock_light_entities
+):
+    """A combined state update must carry the member light's event context."""
+    config_entry, combined_light = await _setup_combined_light(hass)
+
+    combined_events = []
+
+    def capture_combined_event(event):
+        if event.data.get("entity_id") == combined_light.entity_id:
+            combined_events.append(event)
+
+    remove_listener = hass.bus.async_listen(EVENT_STATE_CHANGED, capture_combined_event)
+
+    try:
+        automation_context = Context(id="previous-automation-command")
+        combined_light.async_set_context(automation_context)
+
+        manual_context = Context(id="wall-switch-on")
+        hass.states.async_set(
+            "light.stage_1_1",
+            STATE_ON,
+            {ATTR_BRIGHTNESS: 128},
+            context=manual_context,
+        )
+        await hass.async_block_till_done()
+
+        turned_on_events = [
+            event
+            for event in combined_events
+            if event.data["new_state"].state == STATE_ON
+        ]
+        assert turned_on_events
+        assert turned_on_events[-1].context.id == manual_context.id
+    finally:
+        remove_listener()
+        await hass.config_entries.async_unload(config_entry.entry_id)
+
+
+async def test_expected_member_confirmation_keeps_automation_context(
+    hass: HomeAssistant, mock_light_entities
+):
+    """Foreign KNX confirmation context must not replace the command context."""
+    config_entry, combined_light = await _setup_combined_light(hass)
+    combined_events = []
+
+    def capture_combined_event(event):
+        if event.data.get("entity_id") == combined_light.entity_id:
+            combined_events.append(event)
+
+    remove_listener = hass.bus.async_listen(EVENT_STATE_CHANGED, capture_combined_event)
+
+    try:
+        automation_context = Context(id="motion-automation-command")
+        combined_light.async_set_context(automation_context)
+        combined_light._manual_detector.track_expected_state("light.stage_1_1", 128)
+
+        hass.states.async_set(
+            "light.stage_1_1",
+            STATE_ON,
+            {ATTR_BRIGHTNESS: 128},
+            context=Context(id="foreign-knx-confirmation"),
+        )
+        await hass.async_block_till_done()
+
+        turned_on_events = [
+            event
+            for event in combined_events
+            if event.data["new_state"].state == STATE_ON
+        ]
+        assert turned_on_events
+        assert turned_on_events[-1].context.id == automation_context.id
+    finally:
+        remove_listener()
+        await hass.config_entries.async_unload(config_entry.entry_id)
 
 
 async def test_context_clobbering_race_condition(
