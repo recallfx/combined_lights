@@ -142,27 +142,7 @@ class ManualChangeDetector:
             )
             return False, "transitional_on_state"
 
-        # Check if this is a brightness confirmation for a pending transitional state
-        if entity_id in self._pending_brightness:
-            pending_time = self._pending_brightness[entity_id]
-            elapsed = time.monotonic() - pending_time
-            del self._pending_brightness[entity_id]
-
-            if elapsed <= self._pending_brightness_timeout:
-                # This is the actual brightness arriving after on@0
-                # It's still a manual/external change that should be processed
-                _LOGGER.info(
-                    "  -> MANUAL (brightness_confirmation after %.2fs, brightness=%s)",
-                    elapsed,
-                    actual_brightness,
-                )
-                return True, "brightness_confirmation"
-            else:
-                _LOGGER.info(
-                    "  -> Pending brightness expired (%.2fs > %.2fs)",
-                    elapsed,
-                    self._pending_brightness_timeout,
-                )
+        pending_time = self._pending_brightness.get(entity_id)
 
         # If the event comes from one of our recent contexts, it's not manual
         if context_is_ours:
@@ -170,6 +150,7 @@ class ManualChangeDetector:
             # we know this change was triggered by us.
             if expected_brightness is not None:
                 del self._expected_states[entity_id]
+            self._pending_brightness.pop(entity_id, None)
             _LOGGER.info("  -> NOT manual (recent_context_match)")
             return False, "recent_context_match"
 
@@ -178,6 +159,7 @@ class ManualChangeDetector:
             # Handle "off" state specially
             if new_state and new_state.state == "off" and expected_brightness == 0:
                 del self._expected_states[entity_id]
+                self._pending_brightness.pop(entity_id, None)
                 _LOGGER.info("  -> NOT manual (expected_off_state)")
                 return False, "expected_off_state"
 
@@ -187,6 +169,7 @@ class ManualChangeDetector:
                 if brightness_diff <= self._brightness_tolerance:
                     # Matches expectation
                     del self._expected_states[entity_id]
+                    self._pending_brightness.pop(entity_id, None)
                     _LOGGER.info(
                         "  -> NOT manual (expected_brightness_match, diff=%d)",
                         brightness_diff,
@@ -195,6 +178,7 @@ class ManualChangeDetector:
                 else:
                     # Brightness doesn't match - this is manual
                     del self._expected_states[entity_id]
+                    self._pending_brightness.pop(entity_id, None)
                     _LOGGER.info(
                         "  -> MANUAL (brightness_mismatch, expected=%d got=%d diff=%d)",
                         expected_brightness,
@@ -205,14 +189,27 @@ class ManualChangeDetector:
             else:
                 # No brightness attribute but we expected one
                 del self._expected_states[entity_id]
+                self._pending_brightness.pop(entity_id, None)
                 _LOGGER.info("  -> MANUAL (brightness_mismatch, no brightness attr)")
                 return True, "brightness_mismatch"
 
-        # No expectation set - check if we're currently updating
-        if self._updating_lights:
-            # Integration is updating but no expectation was tracked
-            _LOGGER.info("  -> NOT manual (integration_updating)")
-            return False, "integration_updating"
+        # An unclaimed brightness confirmation is a real external change.
+        if pending_time is not None:
+            elapsed = time.monotonic() - pending_time
+            del self._pending_brightness[entity_id]
+            if elapsed <= self._pending_brightness_timeout:
+                _LOGGER.info(
+                    "  -> MANUAL (brightness_confirmation after %.2fs, brightness=%s)",
+                    elapsed,
+                    actual_brightness,
+                )
+                return True, "brightness_confirmation"
+
+            _LOGGER.info(
+                "  -> Pending brightness expired (%.2fs > %.2fs)",
+                elapsed,
+                self._pending_brightness_timeout,
+            )
 
         # External context with no expectation - manual
         _LOGGER.info("  -> MANUAL (external_context, no expectation)")

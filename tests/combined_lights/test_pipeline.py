@@ -1355,8 +1355,8 @@ class TestContextTracking:
         assert "ctx_0" not in det._recent_contexts
         assert "ctx_20" in det._recent_contexts
 
-    def test_updating_flag_blocks_external_detection(self):
-        """Events during updating flag are not manual."""
+    def test_updating_flag_does_not_hide_external_event(self):
+        """An unclaimed external event remains manual during an update."""
         det = ManualChangeDetector()
         det.set_updating_flag(True)
 
@@ -1364,8 +1364,8 @@ class TestContextTracking:
             "light.test", "off", None, "on", 128, context_id="ext"
         )
         is_manual, reason = det.is_manual_change("light.test", event)
-        assert not is_manual
-        assert reason == "integration_updating"
+        assert is_manual
+        assert reason == "external_context"
 
         det.set_updating_flag(False)
 
