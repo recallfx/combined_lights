@@ -728,6 +728,7 @@ class CombinedLight(LightEntity, RestoreEntity):
         Returns:
             True if at least one light was successfully controlled
         """
+        generation = self._manual_change_generation
         self._manual_detector.set_updating_flag(True)
         any_success = False
 
@@ -752,6 +753,9 @@ class CombinedLight(LightEntity, RestoreEntity):
 
             # Turn on lights grouped by brightness
             for brightness, entities in lights_on.items():
+                if generation != self._manual_change_generation:
+                    return any_success
+
                 # Track expected states BEFORE service call
                 for entity_id in entities:
                     self._manual_detector.track_expected_state(entity_id, brightness)
@@ -775,6 +779,9 @@ class CombinedLight(LightEntity, RestoreEntity):
 
             # Turn off lights
             if lights_off:
+                if generation != self._manual_change_generation:
+                    return any_success
+
                 for entity_id in lights_off:
                     self._manual_detector.track_expected_state(entity_id, 0)
 
