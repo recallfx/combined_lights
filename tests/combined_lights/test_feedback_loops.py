@@ -191,6 +191,100 @@ async def test_expected_member_confirmation_keeps_automation_context(
         await hass.config_entries.async_unload(config_entry.entry_id)
 
 
+async def test_wall_change_during_first_group_stops_later_groups(
+    hass: HomeAssistant, mock_light_entities
+):
+    """A wall event during one group must stop later service calls."""
+    config_entry, combined_light = await _setup_combined_light(hass)
+    turn_on_calls: list[tuple[str, ...]] = []
+    external_changes = []
+
+    async def turn_on_with_wall_interleave(entities, brightness_pct, context):
+        brightness = int(brightness_pct / 100 * 255)
+        turn_on_calls.append(tuple(entities))
+
+        for entity_id in entities:
+            hass.states.async_set(
+                entity_id,
+                STATE_ON,
+                {ATTR_BRIGHTNESS: brightness},
+                context=context,
+            )
+
+        if len(turn_on_calls) == 1:
+            hass.states.async_set(
+                "light.stage_2_1",
+                STATE_ON,
+                {ATTR_BRIGHTNESS: 17},
+                context=Context(id="wall-switch-during-first-group"),
+            )
+
+        await asyncio.sleep(0)
+        return {entity_id: brightness for entity_id in entities}
+
+    remove_listener = hass.bus.async_listen(
+        "combined_light.external_change", external_changes.append
+    )
+    combined_light._light_controller.turn_on_lights = turn_on_with_wall_interleave
+
+    try:
+        await combined_light.async_turn_on(brightness=200)
+
+        assert turn_on_calls == [("light.stage_1_1",)]
+        stage_2_state = hass.states.get("light.stage_2_1")
+        assert stage_2_state is not None
+        assert stage_2_state.attributes[ATTR_BRIGHTNESS] == 17
+        assert [event.data["entity_id"] for event in external_changes] == [
+            "light.stage_2_1"
+        ]
+    finally:
+        remove_listener()
+        await hass.config_entries.async_unload(config_entry.entry_id)
+
+
+async def test_expected_knx_two_phase_confirmation_is_not_manual(
+    hass: HomeAssistant, mock_light_entities
+):
+    """Expected KNX on@0 then on@target callbacks remain integration-owned."""
+    config_entry, combined_light = await _setup_combined_light(hass)
+    external_changes = []
+
+    async def turn_on_with_knx_confirmation(entities, brightness_pct, context):
+        brightness = int(brightness_pct / 100 * 255)
+        for entity_id in entities:
+            hass.states.async_set(
+                entity_id,
+                STATE_ON,
+                {ATTR_BRIGHTNESS: 0},
+                context=Context(id=f"knx-transition-{entity_id}"),
+            )
+            await asyncio.sleep(0)
+            hass.states.async_set(
+                entity_id,
+                STATE_ON,
+                {ATTR_BRIGHTNESS: brightness},
+                context=Context(id=f"knx-confirmation-{entity_id}"),
+            )
+            await asyncio.sleep(0)
+        return {entity_id: brightness for entity_id in entities}
+
+    remove_listener = hass.bus.async_listen(
+        "combined_light.external_change", external_changes.append
+    )
+    combined_light._light_controller.turn_on_lights = turn_on_with_knx_confirmation
+    generation = combined_light._manual_change_generation
+
+    try:
+        await combined_light.async_turn_on(brightness=64)
+
+        assert combined_light._manual_change_generation == generation
+        assert external_changes == []
+        assert combined_light._manual_detector._pending_brightness == {}
+    finally:
+        remove_listener()
+        await hass.config_entries.async_unload(config_entry.entry_id)
+
+
 async def test_context_clobbering_race_condition(
     hass: HomeAssistant, mock_light_entities
 ):
