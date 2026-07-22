@@ -1,0 +1,208 @@
+- id: study
+  name: Combined Study
+  enable_back_propagation: true
+  breakpoints: [30, 50, 85]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.study_bg
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.study_feature
+  stage_3_curve: quadratic
+  stage_3_lights:
+    - light.study_ceiling
+  stage_4_curve: quadratic
+  stage_4_lights:
+    - light.study_desk
+
+- id: entrance
+  name: Combined Entrance
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: quadratic
+  stage_1_lights:
+    - light.entrance_feature
+  stage_2_curve: cubic
+  stage_2_lights: []
+  stage_3_curve: cubic
+  stage_3_lights:
+    - light.entrance_ceiling
+  stage_4_curve: cubic
+  stage_4_lights: []
+
+- id: living
+  name: Combined Living
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.living_room_bg
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.dining_room_feature
+    - light.kitchen_countertop
+  stage_3_curve: linear
+  stage_3_lights:
+    - light.living_room_ceiling_warm
+    - light.kitchen_feature
+  stage_4_curve: linear
+  stage_4_lights:
+    - light.living_room_ceiling_cold
+    - light.living_room_ceiling
+    - light.kitchen_ceiling
+
+- id: corridor
+  name: Combined Corridor
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: quadratic
+  stage_1_lights:
+    - light.corridor_bg
+  stage_2_curve: cubic
+  stage_2_lights: []
+  stage_3_curve: cubic
+  stage_3_lights:
+    - light.corridor_ceiling
+  stage_4_curve: cubic
+  stage_4_lights: []
+
+- id: bathroom
+  name: Combined Bathroom
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.bathroom_bg
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.bathroom_ceiling
+  stage_3_curve: linear
+  stage_3_lights: []
+  stage_4_curve: linear
+  stage_4_lights: []
+
+- id: main_bathroom
+  name: Combined Main Bathroom
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.main_bathroom_bg
+    - light.main_bathroom_feature_bath
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.main_bathroom_ceiling
+  stage_3_curve: linear
+  stage_3_lights: []
+  stage_4_curve: linear
+  stage_4_lights: []
+
+- id: bedroom_1
+  name: Combined Bedroom 1
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.bedroom_1_bg
+  stage_2_curve: linear
+  stage_2_lights: []
+  stage_3_curve: linear
+  stage_3_lights:
+    - light.bedroom_1_feature_wall
+  stage_4_curve: linear
+  stage_4_lights:
+    - light.bedroom_1_ceiling
+
+- id: bedroom_2
+  name: Combined Bedroom 2
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.bedroom_2_bg
+  stage_2_curve: linear
+  stage_2_lights: []
+  stage_3_curve: linear
+  stage_3_lights:
+    - light.bedroom_2_feature
+  stage_4_curve: linear
+  stage_4_lights:
+    - light.bedroom_2_ceiling
+
+- id: main_bedroom
+  name: Combined Main Bedroom
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.main_bedroom_bg
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.main_bedroom_feature
+    - light.main_bathroom_feature
+  stage_3_curve: linear
+  stage_3_lights: []
+  stage_4_curve: linear
+  stage_4_lights:
+    - light.main_bedroom_ceiling
+
+- id: utility
+  name: Combined Utility
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.utility_bg
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.utility_ceiling
+  stage_3_curve: linear
+  stage_3_lights: []
+  stage_4_curve: linear
+  stage_4_lights: []
+
+- id: guests
+  name: Combined Guests
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: quadratic
+  stage_1_lights:
+    - light.guests_restroom_bg
+    - light.guests_restroom_feature
+  stage_2_curve: cubic
+  stage_2_lights: []
+  stage_3_curve: cubic
+  stage_3_lights:
+    - light.guests_restroom_ceiling
+  stage_4_curve: cubic
+  stage_4_lights: []
+
+- id: wardrobe
+  name: Combined Wardrobe
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.wardrobe_bg
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.wardrobe_ceiling
+  stage_3_curve: linear
+  stage_3_lights: []
+  stage_4_curve: linear
+  stage_4_lights: []
+
+- id: workshop
+  name: Combined workshop
+  enable_back_propagation: true
+  breakpoints: [30, 60, 90]
+  stage_1_curve: linear
+  stage_1_lights:
+    - light.workshop_bg
+  stage_2_curve: linear
+  stage_2_lights:
+    - light.workshop_ceiling
+  stage_3_curve: linear
+  stage_3_lights: []
+  stage_4_curve: linear
+  stage_4_lights: []
