@@ -911,6 +911,27 @@ class CombinedLight(LightEntity, RestoreEntity):
         if generation != self._manual_change_generation:
             return
 
+        # Refresh member entities before checking them. Integrations such as KNX
+        # update their HA state optimistically after a write, so the cached state
+        # can say "off" even when the actuator never applied the telegram.
+        try:
+            await self.hass.services.async_call(
+                "homeassistant",
+                "update_entity",
+                {"entity_id": list(expected_states)},
+                blocking=True,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.warning(
+                "Watchdog: failed to refresh member states before verification",
+                exc_info=True,
+            )
+
+        if generation != self._manual_change_generation:
+            return
+
         mismatches: dict[str, dict] = {}
 
         for entity_id, expected_brightness in expected_states.items():

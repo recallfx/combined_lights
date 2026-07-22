@@ -10,12 +10,12 @@ brightness, ignore turn-off, etc.).
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.core import Context, HomeAssistant
+from homeassistant.core import Context, HomeAssistant, ServiceRegistry
 
 from custom_components.combined_lights.const import (
     WATCHDOG_BRIGHTNESS_TOLERANCE,
@@ -285,6 +285,34 @@ class TestDroppedTurnOff:
         # Should be off after retry
         state = hass.states.get("light.stage1")
         assert state.state == "off"
+
+    async def test_optimistic_off_is_refreshed_before_verification(
+        self,
+        hass: HomeAssistant,
+        watchdog_light: CombinedLight,
+        faulty_controller: FaultyLightController,
+    ):
+        """A KNX read must expose a dropped OFF hidden by optimistic HA state."""
+        hass.states.async_set("light.stage1", "off", {})
+        refresh_count = 0
+
+        async def refresh_from_bus(registry, domain, service, service_data, **kwargs):
+            nonlocal refresh_count
+            assert registry is hass.services
+            assert domain == "homeassistant"
+            assert service == "update_entity"
+            assert service_data == {"entity_id": ["light.stage1"]}
+            refresh_count += 1
+            if refresh_count == 1:
+                hass.states.async_set("light.stage1", "on", {"brightness": 41})
+
+        with patch.object(ServiceRegistry, "async_call", refresh_from_bus):
+            await watchdog_light._watchdog_verify({"light.stage1": 0})
+            await asyncio.sleep(0.05)
+
+        assert refresh_count == 2
+        assert faulty_controller.call_log == [("turn_off", ["light.stage1"], 0)]
+        assert hass.states.get("light.stage1").state == "off"
 
     async def test_persistent_turn_off_failure_resyncs(
         self,
