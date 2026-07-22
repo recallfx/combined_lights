@@ -304,9 +304,7 @@ class TestDroppedTurnOff:
             assert service_data == {"entity_id": ["light.stage1"]}
             refresh_count += 1
             if refresh_count == 1:
-                hass.states.async_set(
-                    "light.stage1", "on", {"brightness": 41}
-                )
+                hass.states.async_set("light.stage1", "on", {"brightness": 41})
 
         with patch.object(ServiceRegistry, "async_call", refresh_from_bus):
             await watchdog_light._watchdog_verify({"light.stage1": 0})
